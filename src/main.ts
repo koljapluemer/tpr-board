@@ -1,60 +1,187 @@
 import './style.css'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import { setupCounter } from './counter.ts'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+type ObjectRecord = {
+  model: string
+}
 
-<div class="ticks"></div>
+const app = document.querySelector<HTMLDivElement>('#app')
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+if (!app) {
+  throw new Error('App root not found.')
+}
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+app.innerHTML = '<div id="scene"></div>'
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+const sceneRoot = document.querySelector<HTMLDivElement>('#scene')!
+
+const scene = new THREE.Scene()
+
+const CAMERA_POSITION = new THREE.Vector3(3, 18, 15)
+const CAMERA_ROTATION = new THREE.Euler(-0.98, 0, 0, 'XYZ')
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
+camera.position.copy(CAMERA_POSITION)
+camera.rotation.copy(CAMERA_ROTATION)
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setClearColor(0xf1eee7, 1)
+sceneRoot.appendChild(renderer.domElement)
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.8))
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+keyLight.position.set(6, 12, 8)
+scene.add(keyLight)
+
+const fillLight = new THREE.DirectionalLight(0xffffff, 1.2)
+fillLight.position.set(-5, 8, -6)
+scene.add(fillLight)
+
+const gridCells = [
+  new THREE.Vector3(-4, 0, -4),
+  new THREE.Vector3(0, 0, -4),
+  new THREE.Vector3(4, 0, -4),
+  new THREE.Vector3(-4, 0, 0),
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(4, 0, 0),
+  new THREE.Vector3(-4, 0, 4),
+  new THREE.Vector3(0, 0, 4),
+  new THREE.Vector3(4, 0, 4),
+]
+
+function randomItem<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]
+}
+
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items]
+
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    ;[copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]]
+  }
+
+  return copy
+}
+
+function resizeRenderer() {
+  const { clientWidth, clientHeight } = sceneRoot
+
+  if (!clientWidth || !clientHeight) {
+    return
+  }
+
+  camera.aspect = clientWidth / clientHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(clientWidth, clientHeight, false)
+  renderer.render(scene, camera)
+}
+
+function createBoard() {
+  const squareGeometry = new THREE.PlaneGeometry(3.6, 3.6)
+  const lightSquare = new THREE.MeshStandardMaterial({ color: 0xe7e0d3, roughness: 1 })
+  const darkSquare = new THREE.MeshStandardMaterial({ color: 0xd8cfbf, roughness: 1 })
+
+  gridCells.forEach((cell, index) => {
+    const row = Math.floor(index / 3)
+    const column = index % 3
+    const square = new THREE.Mesh(
+      squareGeometry,
+      (row + column) % 2 === 0 ? lightSquare : darkSquare,
+    )
+
+    square.rotation.x = -Math.PI / 2
+    square.position.set(cell.x, -0.02, cell.z)
+    scene.add(square)
+  })
+}
+
+function normalizeModel(model: THREE.Group) {
+  const box = new THREE.Box3().setFromObject(model)
+  const size = box.getSize(new THREE.Vector3())
+  const maxDimension = Math.max(size.x, size.y, size.z) || 1
+  const scale = 2.2 / maxDimension
+
+  model.scale.setScalar(scale)
+
+  const scaledBox = new THREE.Box3().setFromObject(model)
+  const center = scaledBox.getCenter(new THREE.Vector3())
+
+  model.position.x -= center.x
+  model.position.y -= scaledBox.min.y
+  model.position.z -= center.z
+}
+
+async function loadObjectNames() {
+  const response = await fetch('/objects/index.txt')
+  const text = await response.text()
+
+  return text
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean)
+}
+
+async function loadObjectRecord(name: string) {
+  const response = await fetch(`/objects/${name}.json`)
+
+  if (!response.ok) {
+    throw new Error(`Failed to load object record: ${name}`)
+  }
+
+  return (await response.json()) as ObjectRecord
+}
+
+async function loadModel(modelPath: string): Promise<GLTF> {
+  const manager = new THREE.LoadingManager()
+  const modelFolder = modelPath.slice(0, modelPath.lastIndexOf('/'))
+
+  manager.setURLModifier((url) => {
+    if (url.endsWith('Textures/colormap.png')) {
+      return `/models/${modelFolder}/colormap.png`
+    }
+
+    return url
+  })
+
+  const loader = new GLTFLoader(manager)
+
+  return loader.loadAsync(`/models/${modelPath}`)
+}
+
+async function placeObjects() {
+  const objectNames = await loadObjectNames()
+  const occupiedCells = shuffled(gridCells).slice(0, 4)
+
+  await Promise.all(
+    occupiedCells.map(async (cell) => {
+      const objectName = randomItem(objectNames)
+      const record = await loadObjectRecord(objectName)
+      const gltf = await loadModel(record.model)
+      const wrapper = new THREE.Group()
+
+      normalizeModel(gltf.scene)
+      wrapper.add(gltf.scene)
+      wrapper.position.copy(cell)
+      wrapper.rotation.y = Math.random() * Math.PI * 2
+
+      scene.add(wrapper)
+    }),
+  )
+}
+
+async function init() {
+  createBoard()
+  await placeObjects()
+  resizeRenderer()
+}
+
+window.addEventListener('resize', resizeRenderer)
+
+init().catch((error) => {
+  console.error(error)
+})
