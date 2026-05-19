@@ -5,6 +5,14 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 type ObjectRecord = {
   model: string
+  relationships?: Record<string, string[]>
+}
+
+type LocaleTaskMap = Record<string, string[]>
+
+type PlacedObject = {
+  name: string
+  record: ObjectRecord
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -13,9 +21,17 @@ if (!app) {
   throw new Error('App root not found.')
 }
 
-app.innerHTML = '<div id="scene"></div>'
+app.innerHTML = `
+  <div id="layout">
+    <section id="task-panel">
+      <h1 id="task-text"></h1>
+    </section>
+    <div id="scene"></div>
+  </div>
+`
 
 const sceneRoot = document.querySelector<HTMLDivElement>('#scene')!
+const taskText = document.querySelector<HTMLHeadingElement>('#task-text')!
 
 const scene = new THREE.Scene()
 
@@ -77,7 +93,7 @@ function resizeRenderer() {
 
   camera.aspect = clientWidth / clientHeight
   camera.updateProjectionMatrix()
-  renderer.setSize(clientWidth, clientHeight, false)
+  renderer.setSize(clientWidth, clientHeight, true)
   renderer.render(scene, camera)
 }
 
@@ -136,6 +152,16 @@ async function loadObjectRecord(name: string) {
   return (await response.json()) as ObjectRecord
 }
 
+async function loadLocaleTaskMap() {
+  const response = await fetch('/tpr-board-data/deu/deu.json')
+
+  if (!response.ok) {
+    throw new Error('Failed to load German task strings.')
+  }
+
+  return (await response.json()) as LocaleTaskMap
+}
+
 async function loadModel(modelPath: string): Promise<GLTF> {
   const manager = new THREE.LoadingManager()
   const modelFolder = modelPath.slice(0, modelPath.lastIndexOf('/'))
@@ -156,8 +182,7 @@ async function loadModel(modelPath: string): Promise<GLTF> {
 async function placeObjects() {
   const objectNames = await loadObjectNames()
   const occupiedCells = shuffled(gridCells).slice(0, 4)
-
-  await Promise.all(
+  const placedObjects = await Promise.all(
     occupiedCells.map(async (cell) => {
       const objectName = randomItem(objectNames)
       const record = await loadObjectRecord(objectName)
@@ -170,13 +195,55 @@ async function placeObjects() {
       wrapper.rotation.y = Math.random() * Math.PI * 2
 
       scene.add(wrapper)
+      return {
+        name: objectName,
+        record,
+      } satisfies PlacedObject
     }),
   )
+
+  return placedObjects
+}
+
+function findPossibleTasks(placedObjects: PlacedObject[], localeTaskMap: LocaleTaskMap) {
+  const availableTasks: string[] = []
+  const placedObjectNames = new Set(placedObjects.map((placedObject) => placedObject.name))
+
+  placedObjects.forEach(({ name, record }) => {
+    Object.entries(record.relationships ?? {}).forEach(([targetName, actions]) => {
+      if (!placedObjectNames.has(targetName)) {
+        return
+      }
+
+      actions.forEach((action) => {
+        const taskKey = `${name}_${action}_${targetName}`
+        const formulations = localeTaskMap[taskKey]
+
+        if (formulations?.length) {
+          availableTasks.push(...formulations)
+        }
+      })
+    })
+  })
+
+  return availableTasks
+}
+
+function showTask(task: string) {
+  taskText.textContent = task
 }
 
 async function init() {
   createBoard()
-  await placeObjects()
+  const [placedObjects, localeTaskMap] = await Promise.all([placeObjects(), loadLocaleTaskMap()])
+  const availableTasks = findPossibleTasks(placedObjects, localeTaskMap)
+
+  showTask(
+    availableTasks.length
+      ? randomItem(availableTasks)
+      : '',
+  )
+
   resizeRenderer()
 }
 

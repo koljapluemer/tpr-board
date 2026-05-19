@@ -1,6 +1,7 @@
 {
     "model": "k-food/cooking-knife.glb",
     "relationships": {
-        "apple": ["cuts", "RETURN", "DESTRUCT"]
+        "apple": ["cut", "RETURN", "DESTRUCT"],
+        "banana": ["cut", "RETURN", "DESTRUCT"]
     }
 }
