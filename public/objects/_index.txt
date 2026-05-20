@@ -4,3 +4,5 @@ person-male
 person-female
 banana
 kitchen-knife
+box
+cone
