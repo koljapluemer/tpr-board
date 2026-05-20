@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import plotly.graph_objects as go
+import pandas as pd
 import streamlit as st
 import trimesh
 
@@ -18,6 +20,8 @@ PUBLIC_DIR = REPO_ROOT / "public"
 MODELS_DIR = PUBLIC_DIR / "models"
 OBJECTS_DIR = PUBLIC_DIR / "objects"
 INDEX_PATH = OBJECTS_DIR / "_index.txt"
+EFFECT_OPTIONS = ("NOTHING", "RETURN", "DISAPPEAR", "DESTRUCT")
+RELATIONSHIP_COLUMNS = ["Target", "Verb", "Effect on A", "Effect on B"]
 
 
 @dataclass(frozen=True)
@@ -185,18 +189,6 @@ def load_repository_state() -> RepositoryState:
     )
 
 
-def parse_relationships_input(raw_text: str) -> dict[str, list[str]]:
-    if not raw_text.strip():
-        return {}
-
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Relationships JSON is invalid: {error.msg}") from error
-
-    return validate_relationships(parsed, path=Path("relationships.json"))
-
-
 def serialize_object_payload(model: str, relationships: dict[str, list[str]]) -> str:
     payload: dict[str, Any] = {"model": model}
 
@@ -254,6 +246,117 @@ def rebuild_index(state: RepositoryState) -> None:
     ordered_entries = [slug for slug in dedupe_preserving_order(state.index_entries) if slug in state.records_by_slug]
     missing_entries = sorted(slug for slug in state.records_by_slug if slug not in ordered_entries)
     write_index_entries(ordered_entries + missing_entries)
+
+
+def normalize_cell_value(value: Any) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+
+    text = str(value).strip()
+    return "" if text.lower() == "nan" else text
+
+
+def normalize_effect(value: Any) -> str:
+    effect = normalize_cell_value(value)
+    return effect if effect in EFFECT_OPTIONS else EFFECT_OPTIONS[0]
+
+
+def relationships_to_dataframe(relationships: dict[str, list[str]]) -> pd.DataFrame:
+    rows: list[dict[str, str]] = []
+
+    for target, actions in sorted(relationships.items()):
+        rows.append(
+            {
+                "Target": target,
+                "Verb": actions[0] if len(actions) > 0 else "",
+                "Effect on A": normalize_effect(actions[1] if len(actions) > 1 else None),
+                "Effect on B": normalize_effect(actions[2] if len(actions) > 2 else None),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=RELATIONSHIP_COLUMNS)
+
+
+def collect_known_verbs(state: RepositoryState) -> list[str]:
+    verbs = {
+        actions[0].strip()
+        for record in state.records_by_slug.values()
+        for actions in record.relationships.values()
+        if actions and actions[0].strip()
+    }
+    return sorted(verbs)
+
+
+def parse_relationship_editor_rows(
+    rows: pd.DataFrame,
+    *,
+    current_slug: str | None,
+    valid_targets: set[str],
+) -> tuple[dict[str, list[str]], list[str]]:
+    relationships: dict[str, list[str]] = {}
+    errors: list[str] = []
+    seen_targets: set[str] = set()
+
+    for row_number, row in enumerate(rows.to_dict("records"), start=1):
+        target = normalize_cell_value(row.get("Target"))
+        verb = normalize_cell_value(row.get("Verb"))
+        effect_on_a = normalize_effect(row.get("Effect on A"))
+        effect_on_b = normalize_effect(row.get("Effect on B"))
+
+        if not target and not verb:
+            continue
+
+        if not target:
+            errors.append(f"Row {row_number}: target is required.")
+            continue
+
+        if not verb:
+            errors.append(f"Row {row_number}: verb is required for `{target}`.")
+            continue
+
+        if current_slug and target == current_slug:
+            errors.append(f"Row {row_number}: `{target}` cannot target itself.")
+            continue
+
+        if target not in valid_targets:
+            errors.append(f"Row {row_number}: `{target}` is not a known object slug.")
+            continue
+
+        if target in seen_targets:
+            errors.append(f"Row {row_number}: `{target}` is duplicated. Use at most one row per target.")
+            continue
+
+        seen_targets.add(target)
+        relationships[target] = [verb, effect_on_a, effect_on_b]
+
+    return relationships, errors
+
+
+def collect_inbound_relationships(state: RepositoryState, target_slug: str | None) -> pd.DataFrame:
+    if not target_slug:
+        return pd.DataFrame(columns=["Source", "Verb", "Effect on Source", "Effect on Target"])
+
+    rows: list[dict[str, str]] = []
+
+    for source_slug, record in sorted(state.records_by_slug.items()):
+        actions = record.relationships.get(target_slug)
+
+        if not actions:
+            continue
+
+        rows.append(
+            {
+                "Source": source_slug,
+                "Verb": actions[0] if len(actions) > 0 else "",
+                "Effect on Source": normalize_effect(actions[1] if len(actions) > 1 else None),
+                "Effect on Target": normalize_effect(actions[2] if len(actions) > 2 else None),
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 @st.cache_data(show_spinner=False)
@@ -327,13 +430,6 @@ def build_model_preview_figure(model_path: str) -> go.Figure:
     return figure
 
 
-def format_relationships(relationships: dict[str, list[str]]) -> str:
-    if not relationships:
-        return "{}"
-
-    return json.dumps(relationships, indent=4, ensure_ascii=True)
-
-
 def assignment_label(state: RepositoryState, model: str) -> str:
     slugs = state.model_to_slugs.get(model, [])
 
@@ -368,13 +464,12 @@ def visible_models(state: RepositoryState, search_term: str, show_unassigned_onl
     return visible
 
 
-def initialize_editor_state(editor_key: str, slug: str, relationships: dict[str, list[str]]) -> None:
+def initialize_editor_state(editor_key: str, slug: str) -> None:
     if st.session_state.get("editor_key") == editor_key:
         return
 
     st.session_state.editor_key = editor_key
     st.session_state.slug_input = slug
-    st.session_state.relationships_input = format_relationships(relationships)
 
 
 def jump_to_unassigned_model() -> None:
@@ -569,7 +664,6 @@ def main() -> None:
     initialize_editor_state(
         editor_key,
         current_slug or suggested_slug_for_model(selected_model),
-        current_record.relationships if current_record else {},
     )
 
     form_column, preview_column = st.columns([1.05, 0.95], gap="large")
@@ -583,41 +677,93 @@ def main() -> None:
         else:
             st.info("This model is currently unassigned.")
 
-        with st.form("object-editor"):
-            st.text_input("Object slug", key="slug_input", help="Used for both `_index.txt` and `public/objects/<slug>.json`.")
-            st.text_area(
-                "Relationships JSON",
-                key="relationships_input",
-                height=260,
-                help='Optional object mapping, for example: {"apple": ["cut", "RETURN", "DESTRUCT"]}',
-            )
-
-            save_clicked = st.form_submit_button("Save Object", use_container_width=True)
+        st.text_input(
+            "Object slug",
+            key="slug_input",
+            help="Used for both `_index.txt` and `public/objects/<slug>.json`.",
+        )
+        st.subheader("Relationships")
+        st.caption("One row per target object. Add or edit rows inline, then save once.")
 
         proposed_slug = slugify(st.session_state.slug_input)
+        relationship_editor_key = f"relationship_editor::{editor_key}"
+        valid_target_options = sorted(
+            slug for slug in state.records_by_slug if slug != current_slug
+        )
+        relationship_rows = st.data_editor(
+            relationships_to_dataframe(current_record.relationships if current_record else {}),
+            key=relationship_editor_key,
+            hide_index=True,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "Target": st.column_config.SelectboxColumn(
+                    "Target",
+                    options=valid_target_options,
+                    help="Pick the other object slug affected by this relationship.",
+                    required=False,
+                    width="medium",
+                ),
+                "Verb": st.column_config.TextColumn(
+                    "Verb",
+                    help="Free-text action, for example `cut` or `get-into`.",
+                    required=False,
+                    width="small",
+                ),
+                "Effect on A": st.column_config.SelectboxColumn(
+                    "Effect on A",
+                    options=list(EFFECT_OPTIONS),
+                    required=True,
+                    width="small",
+                ),
+                "Effect on B": st.column_config.SelectboxColumn(
+                    "Effect on B",
+                    options=list(EFFECT_OPTIONS),
+                    required=True,
+                    width="small",
+                ),
+            },
+        )
 
         if proposed_slug and proposed_slug != st.session_state.slug_input:
             st.caption(f"Slug will be normalized to `{proposed_slug}` on save.")
+
+        known_verbs = collect_known_verbs(state)
+
+        if known_verbs:
+            st.caption(f"Known verbs: {', '.join(known_verbs[:12])}")
+
+        relationships_preview, relationship_errors = parse_relationship_editor_rows(
+            relationship_rows,
+            current_slug=current_slug,
+            valid_targets=set(valid_target_options),
+        )
+
+        if relationship_errors:
+            for error in relationship_errors[:6]:
+                st.warning(error)
+
+            if len(relationship_errors) > 6:
+                st.caption(f"{len(relationship_errors) - 6} more relationship issue(s) not shown.")
+
+        save_clicked = st.button("Save Object", type="primary", use_container_width=True)
 
         if save_clicked:
             if not proposed_slug:
                 st.error("Object slug cannot be empty after normalization.")
             elif proposed_slug in state.records_by_slug and proposed_slug != current_slug:
                 st.error(f"`{proposed_slug}` already exists. Rename or edit that object instead.")
+            elif relationship_errors:
+                st.error("Fix the relationship rows before saving.")
             else:
-                try:
-                    relationships = parse_relationships_input(st.session_state.relationships_input)
-                except ValueError as error:
-                    st.error(str(error))
-                else:
-                    save_object_record(
-                        current_slug=current_slug,
-                        new_slug=proposed_slug,
-                        model=selected_model,
-                        relationships=relationships,
-                    )
-                    st.success(f"Saved `{proposed_slug}`.")
-                    st.rerun()
+                save_object_record(
+                    current_slug=current_slug,
+                    new_slug=proposed_slug,
+                    model=selected_model,
+                    relationships=relationships_preview,
+                )
+                st.success(f"Saved `{proposed_slug}`.")
+                st.rerun()
 
         delete_disabled = current_slug is None
 
@@ -626,17 +772,22 @@ def main() -> None:
             st.success(f"Deleted `{current_slug}`.")
             st.rerun()
 
+        inbound_rows = collect_inbound_relationships(state, current_slug)
+
+        with st.expander("Inbound Relationships", expanded=False):
+            if inbound_rows.empty:
+                st.caption("No other object currently points at this object.")
+            else:
+                st.dataframe(inbound_rows, hide_index=True, use_container_width=True)
+
         with st.expander("Generated JSON", expanded=False):
-            relationships_preview = {}
-
-            try:
-                relationships_preview = parse_relationships_input(st.session_state.relationships_input)
-            except ValueError:
-                pass
-
             preview_slug = proposed_slug or suggested_slug_for_model(selected_model)
-            preview_json = serialize_object_payload(selected_model, relationships_preview)
-            st.code(f"// public/objects/{preview_slug}.json\n{preview_json}", language="json")
+
+            if relationship_errors:
+                st.caption("Preview updates after the relationship rows validate cleanly.")
+            else:
+                preview_json = serialize_object_payload(selected_model, relationships_preview)
+                st.code(f"// public/objects/{preview_slug}.json\n{preview_json}", language="json")
 
     with preview_column:
         st.subheader("Preview")

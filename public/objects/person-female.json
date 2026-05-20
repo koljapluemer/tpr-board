@@ -1,6 +1,15 @@
 {
     "model": "k-mini-characters/character-female-a.glb",
     "relationships": {
-        "ambulance": ["get-into", "DISAPPEAR", "NOTHING"]
+        "ambulance": [
+            "get-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ],
+        "taxi": [
+            "get-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
     }
 }

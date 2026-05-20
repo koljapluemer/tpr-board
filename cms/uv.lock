@@ -148,6 +148,7 @@ name = "cms"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "pandas" },
     { name = "plotly" },
     { name = "streamlit" },
     { name = "trimesh" },
@@ -155,6 +156,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pandas", specifier = ">=2.2.0" },
     { name = "plotly", specifier = ">=6.0.0" },
     { name = "streamlit", specifier = ">=1.45.0" },
     { name = "trimesh", specifier = ">=4.7.0" },
