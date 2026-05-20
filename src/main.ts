@@ -133,7 +133,7 @@ function normalizeModel(model: THREE.Group) {
 }
 
 async function loadObjectNames() {
-  const response = await fetch('/objects/index.txt')
+  const response = await fetch('/objects/_index.txt')
   const text = await response.text()
 
   return text
@@ -142,24 +142,31 @@ async function loadObjectNames() {
     .filter(Boolean)
 }
 
-async function loadObjectRecord(name: string) {
-  const response = await fetch(`/objects/${name}.json`)
+async function loadJson<T>(url: string, errorMessage: string): Promise<T> {
+  const response = await fetch(url)
 
   if (!response.ok) {
-    throw new Error(`Failed to load object record: ${name}`)
+    throw new Error(`${errorMessage} (${response.status} ${response.statusText})`)
   }
 
-  return (await response.json()) as ObjectRecord
+  const contentType = response.headers.get('content-type') ?? ''
+
+  if (!contentType.includes('application/json')) {
+    const body = (await response.text()).slice(0, 120)
+    throw new Error(
+      `${errorMessage} (expected JSON, got ${contentType || 'unknown content type'}): ${body}`,
+    )
+  }
+
+  return (await response.json()) as T
+}
+
+async function loadObjectRecord(name: string) {
+  return loadJson<ObjectRecord>(`/objects/${name}.json`, `Failed to load object record: ${name}`)
 }
 
 async function loadLocaleTaskMap() {
-  const response = await fetch('/tpr-board-data/deu/deu.json')
-
-  if (!response.ok) {
-    throw new Error('Failed to load German task strings.')
-  }
-
-  return (await response.json()) as LocaleTaskMap
+  return loadJson<LocaleTaskMap>('/tpr-board-data/deu/deu.json', 'Failed to load German task strings.')
 }
 
 async function loadModel(modelPath: string): Promise<GLTF> {

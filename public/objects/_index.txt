@@ -1,0 +1,6 @@
+apple
+ambulance
+person-male
+person-female
+banana
+kitchen-knife

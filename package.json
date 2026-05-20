@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "validate:public-json": "node scripts/validate-public-json.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.184.1",
