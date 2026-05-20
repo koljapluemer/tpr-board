@@ -15,6 +15,11 @@ type PlacedObject = {
   record: ObjectRecord
 }
 
+type SceneObject = PlacedObject & {
+  wrapper: THREE.Group
+  yawVelocity: number
+}
+
 const app = document.querySelector<HTMLDivElement>('#app')
 
 if (!app) {
@@ -46,6 +51,15 @@ const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setClearColor(0xf1eee7, 1)
 sceneRoot.appendChild(renderer.domElement)
+
+const raycaster = new THREE.Raycaster()
+const pointer = new THREE.Vector2(2, 2)
+const hoverableObjects: SceneObject[] = []
+const HOVER_YAW_SPEED = Math.PI / 3
+const HOVER_ACCELERATION = 10
+
+let hoveredObject: SceneObject | null = null
+let lastFrameTime = performance.now()
 
 scene.add(new THREE.AmbientLight(0xffffff, 1.8))
 
@@ -95,6 +109,51 @@ function resizeRenderer() {
   camera.updateProjectionMatrix()
   renderer.setSize(clientWidth, clientHeight, true)
   renderer.render(scene, camera)
+}
+
+function findSceneObject(target: THREE.Object3D | null) {
+  let current: THREE.Object3D | null = target
+
+  while (current) {
+    const sceneObject = current.userData.sceneObject as SceneObject | undefined
+
+    if (sceneObject) {
+      return sceneObject
+    }
+
+    current = current.parent
+  }
+
+  return null
+}
+
+function updateHoveredObject() {
+  raycaster.setFromCamera(pointer, camera)
+
+  const intersections = raycaster.intersectObjects(
+    hoverableObjects.map(({ wrapper }) => wrapper),
+    true,
+  )
+
+  hoveredObject = findSceneObject(intersections[0]?.object ?? null)
+}
+
+function updatePointer(event: PointerEvent) {
+  const bounds = renderer.domElement.getBoundingClientRect()
+
+  if (!bounds.width || !bounds.height) {
+    return
+  }
+
+  pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+  pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+
+  updateHoveredObject()
+}
+
+function clearHoveredObject() {
+  pointer.set(2, 2)
+  hoveredObject = null
 }
 
 function createBoard() {
@@ -201,11 +260,17 @@ async function placeObjects() {
       wrapper.position.copy(cell)
       wrapper.rotation.y = Math.random() * Math.PI * 2
 
-      scene.add(wrapper)
-      return {
+      const sceneObject = {
         name: objectName,
         record,
-      } satisfies PlacedObject
+        wrapper,
+        yawVelocity: 0,
+      } satisfies SceneObject
+
+      wrapper.userData.sceneObject = sceneObject
+      hoverableObjects.push(sceneObject)
+      scene.add(wrapper)
+      return sceneObject
     }),
   )
 
@@ -240,6 +305,25 @@ function showTask(task: string) {
   taskText.textContent = task
 }
 
+function animate(now: number) {
+  const deltaSeconds = Math.min((now - lastFrameTime) / 1000, 0.05)
+  lastFrameTime = now
+
+  hoverableObjects.forEach((sceneObject) => {
+    const targetVelocity = sceneObject === hoveredObject ? HOVER_YAW_SPEED : 0
+    sceneObject.yawVelocity = THREE.MathUtils.damp(
+      sceneObject.yawVelocity,
+      targetVelocity,
+      HOVER_ACCELERATION,
+      deltaSeconds,
+    )
+    sceneObject.wrapper.rotation.y += sceneObject.yawVelocity * deltaSeconds
+  })
+
+  renderer.render(scene, camera)
+  window.requestAnimationFrame(animate)
+}
+
 async function init() {
   createBoard()
   const [placedObjects, localeTaskMap] = await Promise.all([placeObjects(), loadLocaleTaskMap()])
@@ -255,7 +339,11 @@ async function init() {
 }
 
 window.addEventListener('resize', resizeRenderer)
+renderer.domElement.addEventListener('pointermove', updatePointer)
+renderer.domElement.addEventListener('pointerleave', clearHoveredObject)
 
 init().catch((error) => {
   console.error(error)
 })
+
+window.requestAnimationFrame(animate)
