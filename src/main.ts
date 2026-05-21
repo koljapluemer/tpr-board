@@ -74,6 +74,7 @@ const DRAG_LIFT = 0.9
 const WIGGLE_SPEED = 26
 const WIGGLE_DAMPING = 14
 const WIGGLE_ANGLE = 0.14
+const SPAWN_YAW_VARIATION = Math.PI / 6
 
 let hoveredObject: SceneObject | null = null
 let dragState: DragState | null = null
@@ -88,6 +89,8 @@ scene.add(keyLight)
 const fillLight = new THREE.DirectionalLight(0xffffff, 1.2)
 fillLight.position.set(-5, 8, -6)
 scene.add(fillLight)
+
+const spawnLookTarget = new THREE.Vector3()
 
 const gridCells = [
   new THREE.Vector3(-4, 0, -4),
@@ -336,6 +339,12 @@ function normalizeModel(model: THREE.Group) {
   }
 }
 
+function orientSpawnedObjectTowardCamera(wrapper: THREE.Object3D) {
+  spawnLookTarget.set(camera.position.x, wrapper.position.y, camera.position.z)
+  wrapper.lookAt(spawnLookTarget)
+  wrapper.rotateY(THREE.MathUtils.randFloatSpread(SPAWN_YAW_VARIATION * 2))
+}
+
 async function loadObjectNames() {
   const response = await fetch('/objects/_index.txt')
   const text = await response.text()
@@ -403,7 +412,7 @@ async function placeObjects() {
       const { radius } = normalizeModel(gltf.scene)
       wrapper.add(gltf.scene)
       wrapper.position.copy(cell)
-      wrapper.rotation.y = Math.random() * Math.PI * 2
+      orientSpawnedObjectTowardCamera(wrapper)
 
       const sceneObject = {
         name: objectName,

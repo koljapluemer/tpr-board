@@ -93,7 +93,6 @@ laptop
 couch
 potted-plant
 radio
-shower
 ambulance
 speaker
 stairs
