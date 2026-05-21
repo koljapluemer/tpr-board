@@ -10,6 +10,11 @@
             "get-into",
             "DISAPPEAR",
             "NOTHING"
+        ],
+        "animal-bunny": [
+            "pet",
+            "RETURN",
+            "WIGGLE"
         ]
     }
 }

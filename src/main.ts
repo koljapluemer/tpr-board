@@ -17,7 +17,17 @@ type PlacedObject = {
 
 type SceneObject = PlacedObject & {
   wrapper: THREE.Group
+  homePosition: THREE.Vector3
+  radius: number
   yawVelocity: number
+  wigglePhase: number
+  wiggleStrength: number
+}
+
+type DragState = {
+  object: SceneObject
+  pointerId: number
+  grabOffset: THREE.Vector3
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -54,11 +64,19 @@ sceneRoot.appendChild(renderer.domElement)
 
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2(2, 2)
+const boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+const planeIntersection = new THREE.Vector3()
+const grabPoint = new THREE.Vector3()
 const hoverableObjects: SceneObject[] = []
 const HOVER_YAW_SPEED = Math.PI / 3
 const HOVER_ACCELERATION = 10
+const DRAG_LIFT = 0.9
+const WIGGLE_SPEED = 26
+const WIGGLE_DAMPING = 14
+const WIGGLE_ANGLE = 0.14
 
 let hoveredObject: SceneObject | null = null
+let dragState: DragState | null = null
 let lastFrameTime = performance.now()
 
 scene.add(new THREE.AmbientLight(0xffffff, 1.8))
@@ -128,6 +146,11 @@ function findSceneObject(target: THREE.Object3D | null) {
 }
 
 function updateHoveredObject() {
+  if (dragState) {
+    hoveredObject = null
+    return
+  }
+
   raycaster.setFromCamera(pointer, camera)
 
   const intersections = raycaster.intersectObjects(
@@ -138,22 +161,138 @@ function updateHoveredObject() {
   hoveredObject = findSceneObject(intersections[0]?.object ?? null)
 }
 
-function updatePointer(event: PointerEvent) {
+function setPointerFromEvent(event: PointerEvent) {
   const bounds = renderer.domElement.getBoundingClientRect()
 
   if (!bounds.width || !bounds.height) {
-    return
+    return false
   }
 
   pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
   pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1
 
-  updateHoveredObject()
+  return true
 }
 
 function clearHoveredObject() {
+  if (dragState) {
+    return
+  }
+
   pointer.set(2, 2)
   hoveredObject = null
+}
+
+function projectPointerToBoard() {
+  raycaster.setFromCamera(pointer, camera)
+
+  return raycaster.ray.intersectPlane(boardPlane, planeIntersection)
+}
+
+function updateDragTargets() {
+  const draggedObject = dragState?.object
+
+  hoverableObjects.forEach((sceneObject) => {
+    if (sceneObject === draggedObject || !draggedObject) {
+      return
+    }
+
+    const dx = draggedObject.wrapper.position.x - sceneObject.wrapper.position.x
+    const dz = draggedObject.wrapper.position.z - sceneObject.wrapper.position.z
+    const collisionDistance = draggedObject.radius + sceneObject.radius
+
+    if (dx * dx + dz * dz <= collisionDistance * collisionDistance) {
+      sceneObject.wiggleStrength = 1
+    }
+  })
+}
+
+function updateDraggedObjectPosition() {
+  if (!dragState) {
+    return
+  }
+
+  const point = projectPointerToBoard()
+
+  if (!point) {
+    return
+  }
+
+  dragState.object.wrapper.position.copy(point).add(dragState.grabOffset)
+  dragState.object.wrapper.position.y = DRAG_LIFT
+  updateDragTargets()
+}
+
+function startDrag(event: PointerEvent) {
+  if (dragState) {
+    return
+  }
+
+  if (!setPointerFromEvent(event)) {
+    return
+  }
+
+  updateHoveredObject()
+
+  if (!hoveredObject) {
+    return
+  }
+
+  const point = projectPointerToBoard()
+
+  if (!point) {
+    return
+  }
+
+  const object = hoveredObject
+  dragState = {
+    object,
+    pointerId: event.pointerId,
+    grabOffset: grabPoint.copy(object.wrapper.position).sub(point),
+  }
+  object.wrapper.position.y = DRAG_LIFT
+  hoveredObject = null
+  renderer.domElement.setPointerCapture(event.pointerId)
+  updateDraggedObjectPosition()
+}
+
+function stopDrag(pointerId: number) {
+  if (!dragState || dragState.pointerId !== pointerId) {
+    return
+  }
+
+  if (renderer.domElement.hasPointerCapture(pointerId)) {
+    renderer.domElement.releasePointerCapture(pointerId)
+  }
+
+  dragState.object.wrapper.position.copy(dragState.object.homePosition)
+  dragState = null
+  updateHoveredObject()
+}
+
+function handlePointerDown(event: PointerEvent) {
+  startDrag(event)
+}
+
+function handlePointerMove(event: PointerEvent) {
+  if (!setPointerFromEvent(event)) {
+    return
+  }
+
+  if (dragState?.pointerId === event.pointerId) {
+    updateDraggedObjectPosition()
+    return
+  }
+
+  updateHoveredObject()
+}
+
+function handlePointerUp(event: PointerEvent) {
+  stopDrag(event.pointerId)
+}
+
+function handlePointerCancel(event: PointerEvent) {
+  stopDrag(event.pointerId)
 }
 
 function createBoard() {
@@ -189,6 +328,12 @@ function normalizeModel(model: THREE.Group) {
   model.position.x -= center.x
   model.position.y -= scaledBox.min.y
   model.position.z -= center.z
+
+  const scaledSize = scaledBox.getSize(new THREE.Vector3())
+
+  return {
+    radius: Math.max(scaledSize.x, scaledSize.z) * 0.45,
+  }
 }
 
 async function loadObjectNames() {
@@ -255,7 +400,7 @@ async function placeObjects() {
       const gltf = await loadModel(record.model)
       const wrapper = new THREE.Group()
 
-      normalizeModel(gltf.scene)
+      const { radius } = normalizeModel(gltf.scene)
       wrapper.add(gltf.scene)
       wrapper.position.copy(cell)
       wrapper.rotation.y = Math.random() * Math.PI * 2
@@ -264,7 +409,11 @@ async function placeObjects() {
         name: objectName,
         record,
         wrapper,
+        homePosition: cell.clone(),
+        radius,
         yawVelocity: 0,
+        wigglePhase: Math.random() * Math.PI * 2,
+        wiggleStrength: 0,
       } satisfies SceneObject
 
       wrapper.userData.sceneObject = sceneObject
@@ -310,7 +459,8 @@ function animate(now: number) {
   lastFrameTime = now
 
   hoverableObjects.forEach((sceneObject) => {
-    const targetVelocity = sceneObject === hoveredObject ? HOVER_YAW_SPEED : 0
+    const targetVelocity =
+      !dragState && sceneObject === hoveredObject ? HOVER_YAW_SPEED : 0
     sceneObject.yawVelocity = THREE.MathUtils.damp(
       sceneObject.yawVelocity,
       targetVelocity,
@@ -318,6 +468,15 @@ function animate(now: number) {
       deltaSeconds,
     )
     sceneObject.wrapper.rotation.y += sceneObject.yawVelocity * deltaSeconds
+    sceneObject.wiggleStrength = THREE.MathUtils.damp(
+      sceneObject.wiggleStrength,
+      0,
+      WIGGLE_DAMPING,
+      deltaSeconds,
+    )
+    sceneObject.wigglePhase += deltaSeconds * WIGGLE_SPEED
+    sceneObject.wrapper.rotation.z =
+      Math.sin(sceneObject.wigglePhase) * sceneObject.wiggleStrength * WIGGLE_ANGLE
   })
 
   renderer.render(scene, camera)
@@ -339,7 +498,10 @@ async function init() {
 }
 
 window.addEventListener('resize', resizeRenderer)
-renderer.domElement.addEventListener('pointermove', updatePointer)
+renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+renderer.domElement.addEventListener('pointermove', handlePointerMove)
+renderer.domElement.addEventListener('pointerup', handlePointerUp)
+renderer.domElement.addEventListener('pointercancel', handlePointerCancel)
 renderer.domElement.addEventListener('pointerleave', clearHoveredObject)
 
 init().catch((error) => {
