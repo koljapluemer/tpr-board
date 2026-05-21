@@ -20,6 +20,8 @@ PUBLIC_DIR = REPO_ROOT / "public"
 MODELS_DIR = PUBLIC_DIR / "models"
 OBJECTS_DIR = PUBLIC_DIR / "objects"
 INDEX_PATH = OBJECTS_DIR / "_index.txt"
+TPR_BOARD_DATA_DIR = PUBLIC_DIR / "tpr-board-data"
+TPR_BOARD_DATA_INDEX_PATH = TPR_BOARD_DATA_DIR / "index.txt"
 EFFECT_OPTIONS = ("NOTHING", "RETURN", "DISAPPEAR", "DESTRUCT", "WIGGLE", "HOLD")
 RELATIONSHIP_COLUMNS = ["Target", "Verb", "Effect on A", "Effect on B"]
 
@@ -83,11 +85,93 @@ def read_index_entries() -> list[str]:
     ]
 
 
+def read_active_language_codes() -> list[str]:
+    if not TPR_BOARD_DATA_INDEX_PATH.exists():
+        return []
+
+    return [
+        line.strip()
+        for line in TPR_BOARD_DATA_INDEX_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def write_index_entries(entries: list[str]) -> None:
     INDEX_PATH.write_text(
         "".join(f"{entry}\n" for entry in dedupe_preserving_order(entries)),
         encoding="utf-8",
     )
+
+
+def relationship_task_key(source_slug: str, verb: str, target_slug: str) -> str:
+    return f"{source_slug}_{verb}_{target_slug}"
+
+
+def load_locale_task_map(path: Path) -> dict[str, list[str]]:
+    if not path.exists():
+        return {}
+
+    raw_text = path.read_text(encoding="utf-8").strip()
+
+    if not raw_text:
+        return {}
+
+    data = json.loads(raw_text)
+
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name}: root JSON value must be an object")
+
+    normalized: dict[str, list[str]] = {}
+
+    for key, value in data.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"{path.name}: task keys must be non-empty strings")
+
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise ValueError(f"{path.name}: values for '{key}' must be arrays of strings")
+
+        normalized[key] = value
+
+    return normalized
+
+
+def serialize_locale_task_map(locale_task_map: dict[str, list[str]]) -> str:
+    return json.dumps(locale_task_map, indent=4, ensure_ascii=True) + "\n"
+
+
+def seed_relationship_task_keys(
+    *,
+    source_slug: str,
+    relationships: dict[str, list[str]],
+) -> None:
+    task_keys = [
+        relationship_task_key(source_slug, actions[0].strip(), target_slug)
+        for target_slug, actions in sorted(relationships.items())
+        if actions and actions[0].strip()
+    ]
+
+    if not task_keys:
+        return
+
+    for language_code in read_active_language_codes():
+        locale_path = TPR_BOARD_DATA_DIR / language_code / f"{language_code}.json"
+        locale_path.parent.mkdir(parents=True, exist_ok=True)
+
+        locale_task_map = load_locale_task_map(locale_path)
+        changed = False
+
+        for task_key in task_keys:
+            if task_key in locale_task_map:
+                continue
+
+            locale_task_map[task_key] = []
+            changed = True
+
+        if changed:
+            locale_path.write_text(
+                serialize_locale_task_map(locale_task_map),
+                encoding="utf-8",
+            )
 
 
 def validate_relationships(value: Any, *, path: Path) -> dict[str, list[str]]:
@@ -214,6 +298,8 @@ def save_object_record(
         serialize_object_payload(model, relationships),
         encoding="utf-8",
     )
+
+    seed_relationship_task_keys(source_slug=new_slug, relationships=relationships)
 
     if previous_path and previous_path != target_path and previous_path.exists():
         previous_path.unlink()

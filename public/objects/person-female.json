@@ -6,15 +6,25 @@
             "DISAPPEAR",
             "NOTHING"
         ],
+        "animal-bunny": [
+            "pet",
+            "RETURN",
+            "WIGGLE"
+        ],
         "taxi": [
             "get-into",
             "DISAPPEAR",
             "NOTHING"
         ],
-        "animal-bunny": [
+        "animal-cat": [
             "pet",
             "RETURN",
             "WIGGLE"
+        ],
+        "avocado": [
+            "eat",
+            "RETURN",
+            "DESTRUCT"
         ]
     }
 }

@@ -1,4 +1,14 @@
 {
-    "kitchen-knife_cut_apple": ["Schneide den Apfel mit dem Messer"],
-    "kitchen-knife_cut_banana": ["Schneide die Banane mit dem Messer", "Benutze das Messer, um die Banane zu schneiden"]
+    "kitchen-knife_cut_apple": [
+        "Schneide den Apfel mit dem Messer"
+    ],
+    "kitchen-knife_cut_banana": [
+        "Schneide die Banane mit dem Messer",
+        "Benutze das Messer, um die Banane zu schneiden"
+    ],
+    "person-female_get-into_ambulance": [],
+    "person-female_pet_animal-bunny": [],
+    "person-female_pet_animal-cat": [],
+    "person-female_eat_avocado": [],
+    "person-female_get-into_taxi": []
 }
