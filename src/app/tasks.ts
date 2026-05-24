@@ -1,27 +1,33 @@
-import type { LocaleTaskMap, ObjectRecord, PlacedObject } from './types'
+import type { LocaleTaskMap, ObjectRecord, PlacedObject, TaskCandidate } from './types'
 import { shuffled } from './utils'
 
 function objectHasRelationships(record: ObjectRecord) {
   return Object.keys(record.relationships ?? {}).length > 0
 }
 
-export function findPossibleTasks(placedObjects: PlacedObject[], localeTaskMap: LocaleTaskMap) {
-  const availableTasks: string[] = []
+export function findTaskCandidates(placedObjects: PlacedObject[], localeTaskMap: LocaleTaskMap) {
+  const availableTasks: TaskCandidate[] = []
   const placedObjectNames = new Set(placedObjects.map((placedObject) => placedObject.name))
 
   placedObjects.forEach(({ name, record }) => {
-    Object.entries(record.relationships ?? {}).forEach(([targetName, actions]) => {
+    Object.entries(record.relationships ?? {}).forEach(([targetName, relationship]) => {
       if (!placedObjectNames.has(targetName)) {
         return
       }
 
-      actions.forEach((action) => {
-        const taskKey = `${name}_${action}_${targetName}`
-        const formulations = localeTaskMap[taskKey]
+      const [verb, sourceEffect, targetEffect] = relationship
+      const taskKey = `${name}_${verb}_${targetName}`
+      const formulations = localeTaskMap[taskKey]
 
-        if (formulations?.length) {
-          availableTasks.push(...formulations)
-        }
+      formulations?.forEach((text) => {
+        availableTasks.push({
+          key: taskKey,
+          text,
+          sourceEffect,
+          sourceName: name,
+          targetEffect,
+          targetName,
+        })
       })
     })
   })
@@ -59,7 +65,7 @@ export function selectBoardObjects(objectPool: PlacedObject[], localeTaskMap: Lo
 
   const selectedObjects = selectableObjects.slice(0, 4)
 
-  if (findPossibleTasks(selectedObjects, localeTaskMap).length > 0) {
+  if (findTaskCandidates(selectedObjects, localeTaskMap).length > 0) {
     return selectedObjects
   }
 
@@ -72,7 +78,7 @@ export function selectBoardObjects(objectPool: PlacedObject[], localeTaskMap: Lo
 
   const candidateThatUnlocksTask =
     relatedCandidates.find((candidate) => {
-      return findPossibleTasks([...selectedObjects, candidate], localeTaskMap).length > 0
+      return findTaskCandidates([...selectedObjects, candidate], localeTaskMap).length > 0
     }) ?? relatedCandidates[0]
 
   return [...selectedObjects, candidateThatUnlocksTask]

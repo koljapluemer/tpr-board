@@ -2,22 +2,28 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
-import type { PlacedObject } from './types'
+import type { PlacedObject, RelationshipEffect, TaskCandidate } from './types'
 import { shuffled } from './utils'
 
 type SceneObject = PlacedObject & {
   wrapper: THREE.Group
   homePosition: THREE.Vector3
   radius: number
-  yawVelocity: number
   wigglePhase: number
   wiggleStrength: number
+  baseScale: number
+  effectScale: number
+  highlightStrength: number
 }
 
 type DragState = {
   object: SceneObject
   pointerId: number
   grabOffset: THREE.Vector3
+}
+
+type BoardSceneOptions = {
+  onTaskCompleted?: () => void
 }
 
 const CAMERA_POSITION = new THREE.Vector3(0, 18, 15)
@@ -33,13 +39,15 @@ const BOARD_CELLS = [
   new THREE.Vector3(0, 0, 4),
   new THREE.Vector3(4, 0, 4),
 ]
-const HOVER_YAW_SPEED = Math.PI / 3
-const HOVER_ACCELERATION = 10
+const HOVER_SCALE = 1.08
+const HOVER_DAMPING = 16
 const DRAG_LIFT = 0.9
 const WIGGLE_SPEED = 26
 const WIGGLE_DAMPING = 14
 const WIGGLE_ANGLE = 0.14
 const SPAWN_YAW_VARIATION = Math.PI / 6
+const DISAPPEAR_DURATION_SECONDS = 0.18
+const DESTRUCT_DURATION_SECONDS = 0.24
 
 export class BoardScene {
   private readonly boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
@@ -48,6 +56,7 @@ export class BoardScene {
   private readonly grabPoint = new THREE.Vector3()
   private readonly hoverableObjects: SceneObject[] = []
   private readonly keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+  private readonly onTaskCompleted?: () => void
   private readonly planeIntersection = new THREE.Vector3()
   private readonly pointer = new THREE.Vector2(2, 2)
   private readonly raycaster = new THREE.Raycaster()
@@ -56,12 +65,16 @@ export class BoardScene {
   private readonly sceneRoot: HTMLDivElement
   private readonly spawnLookTarget = new THREE.Vector3()
 
+  private activeTask: TaskCandidate | null = null
   private boardCreated = false
   private dragState: DragState | null = null
+  private dropTargetObject: SceneObject | null = null
   private hoveredObject: SceneObject | null = null
+  private isResolvingRound = false
   private lastFrameTime = performance.now()
 
-  constructor(sceneRoot: HTMLDivElement) {
+  constructor(sceneRoot: HTMLDivElement, options: BoardSceneOptions = {}) {
+    this.onTaskCompleted = options.onTaskCompleted
     this.sceneRoot = sceneRoot
 
     this.camera.position.copy(CAMERA_POSITION)
@@ -95,8 +108,14 @@ export class BoardScene {
       this.boardCreated = true
     }
 
+    this.clearPlacedObjects()
     await this.placeObjects(placedObjects)
+    this.isResolvingRound = false
     this.resizeRenderer()
+  }
+
+  setActiveTask(task: TaskCandidate | null) {
+    this.activeTask = task
   }
 
   private readonly animate = (now: number) => {
@@ -104,16 +123,16 @@ export class BoardScene {
     this.lastFrameTime = now
 
     this.hoverableObjects.forEach((sceneObject) => {
-      const targetVelocity =
-        !this.dragState && sceneObject === this.hoveredObject ? HOVER_YAW_SPEED : 0
+      const isHighlighted =
+        (!this.dragState && sceneObject === this.hoveredObject) ||
+        (this.dragState !== null && sceneObject === this.dropTargetObject)
 
-      sceneObject.yawVelocity = THREE.MathUtils.damp(
-        sceneObject.yawVelocity,
-        targetVelocity,
-        HOVER_ACCELERATION,
+      sceneObject.highlightStrength = THREE.MathUtils.damp(
+        sceneObject.highlightStrength,
+        isHighlighted ? 1 : 0,
+        HOVER_DAMPING,
         deltaSeconds,
       )
-      sceneObject.wrapper.rotation.y += sceneObject.yawVelocity * deltaSeconds
       sceneObject.wiggleStrength = THREE.MathUtils.damp(
         sceneObject.wiggleStrength,
         0,
@@ -123,19 +142,37 @@ export class BoardScene {
       sceneObject.wigglePhase += deltaSeconds * WIGGLE_SPEED
       sceneObject.wrapper.rotation.z =
         Math.sin(sceneObject.wigglePhase) * sceneObject.wiggleStrength * WIGGLE_ANGLE
+
+      this.applySceneObjectScale(sceneObject)
     })
 
     this.renderer.render(this.scene, this.camera)
     window.requestAnimationFrame(this.animate)
   }
 
+  private applySceneObjectScale(sceneObject: SceneObject) {
+    const highlightScale = THREE.MathUtils.lerp(1, HOVER_SCALE, sceneObject.highlightStrength)
+    sceneObject.wrapper.scale.setScalar(sceneObject.baseScale * sceneObject.effectScale * highlightScale)
+  }
+
   private readonly clearHoveredObject = () => {
-    if (this.dragState) {
+    if (this.dragState || this.isResolvingRound) {
       return
     }
 
     this.pointer.set(2, 2)
     this.hoveredObject = null
+  }
+
+  private clearPlacedObjects() {
+    this.hoverableObjects.forEach((sceneObject) => {
+      sceneObject.wrapper.removeFromParent()
+    })
+    this.hoverableObjects.length = 0
+    this.dragState = null
+    this.dropTargetObject = null
+    this.hoveredObject = null
+    this.pointer.set(2, 2)
   }
 
   private createBoard() {
@@ -173,8 +210,35 @@ export class BoardScene {
     return null
   }
 
+  private findDropTarget(draggedObject: SceneObject) {
+    let bestTarget: SceneObject | null = null
+    let bestDistanceSquared = Number.POSITIVE_INFINITY
+
+    this.hoverableObjects.forEach((sceneObject) => {
+      if (sceneObject === draggedObject || !sceneObject.wrapper.visible) {
+        return
+      }
+
+      const dx = draggedObject.wrapper.position.x - sceneObject.wrapper.position.x
+      const dz = draggedObject.wrapper.position.z - sceneObject.wrapper.position.z
+      const distanceSquared = dx * dx + dz * dz
+      const collisionDistance = draggedObject.radius + sceneObject.radius
+
+      if (distanceSquared > collisionDistance * collisionDistance) {
+        return
+      }
+
+      if (distanceSquared < bestDistanceSquared) {
+        bestDistanceSquared = distanceSquared
+        bestTarget = sceneObject
+      }
+    })
+
+    return bestTarget
+  }
+
   private readonly handlePointerCancel = (event: PointerEvent) => {
-    this.stopDrag(event.pointerId)
+    void this.stopDrag(event.pointerId)
   }
 
   private readonly handlePointerDown = (event: PointerEvent) => {
@@ -195,7 +259,15 @@ export class BoardScene {
   }
 
   private readonly handlePointerUp = (event: PointerEvent) => {
-    this.stopDrag(event.pointerId)
+    void this.stopDrag(event.pointerId)
+  }
+
+  private hideSceneObject(sceneObject: SceneObject) {
+    sceneObject.wrapper.visible = false
+    sceneObject.highlightStrength = 0
+    sceneObject.wiggleStrength = 0
+    sceneObject.effectScale = 1
+    this.applySceneObjectScale(sceneObject)
   }
 
   private normalizeModel(model: THREE.Group) {
@@ -258,6 +330,7 @@ export class BoardScene {
         const wrapper = new THREE.Group()
 
         const { radius } = this.normalizeModel(gltf.scene)
+
         wrapper.add(gltf.scene)
         wrapper.position.copy(cell)
         this.orientSpawnedObjectTowardCamera(wrapper)
@@ -268,13 +341,16 @@ export class BoardScene {
           wrapper,
           homePosition: cell.clone(),
           radius,
-          yawVelocity: 0,
           wigglePhase: Math.random() * Math.PI * 2,
           wiggleStrength: 0,
+          baseScale: 1,
+          effectScale: 1,
+          highlightStrength: 0,
         } satisfies SceneObject
 
         wrapper.userData.sceneObject = sceneObject
         this.hoverableObjects.push(sceneObject)
+        this.applySceneObjectScale(sceneObject)
         this.scene.add(wrapper)
       }),
     )
@@ -298,6 +374,32 @@ export class BoardScene {
     this.renderer.render(this.scene, this.camera)
   }
 
+  private runAnimation(durationSeconds: number, onFrame: (progress: number) => void) {
+    return new Promise<void>((resolve) => {
+      if (durationSeconds <= 0) {
+        onFrame(1)
+        resolve()
+        return
+      }
+
+      const startTime = performance.now()
+
+      const tick = (now: number) => {
+        const progress = Math.min((now - startTime) / (durationSeconds * 1000), 1)
+        onFrame(progress)
+
+        if (progress < 1) {
+          window.requestAnimationFrame(tick)
+          return
+        }
+
+        resolve()
+      }
+
+      window.requestAnimationFrame(tick)
+    })
+  }
+
   private setPointerFromEvent(event: PointerEvent) {
     const bounds = this.renderer.domElement.getBoundingClientRect()
 
@@ -312,7 +414,7 @@ export class BoardScene {
   }
 
   private startDrag(event: PointerEvent) {
-    if (this.dragState) {
+    if (this.dragState || this.isResolvingRound || !this.activeTask) {
       return
     }
 
@@ -344,7 +446,7 @@ export class BoardScene {
     this.updateDraggedObjectPosition()
   }
 
-  private stopDrag(pointerId: number) {
+  private async stopDrag(pointerId: number) {
     if (!this.dragState || this.dragState.pointerId !== pointerId) {
       return
     }
@@ -353,31 +455,122 @@ export class BoardScene {
       this.renderer.domElement.releasePointerCapture(pointerId)
     }
 
-    this.dragState.object.wrapper.position.copy(this.dragState.object.homePosition)
+    const draggedObject = this.dragState.object
+    const dropTarget = this.dropTargetObject
+
     this.dragState = null
-    this.updateHoveredObject()
-  }
+    this.dropTargetObject = null
 
-  private updateDragTargets() {
-    const draggedObject = this.dragState?.object
-
-    if (!draggedObject) {
+    if (!this.isSuccessfulDrop(draggedObject, dropTarget)) {
+      draggedObject.wrapper.position.copy(draggedObject.homePosition)
+      this.updateHoveredObject()
       return
     }
 
-    this.hoverableObjects.forEach((sceneObject) => {
-      if (sceneObject === draggedObject) {
-        return
-      }
+    this.isResolvingRound = true
+    this.hoveredObject = null
+    draggedObject.wrapper.position.y = draggedObject.homePosition.y
+    this.onTaskCompleted?.()
+    await this.resolveSuccessfulDrop(draggedObject, dropTarget!)
+  }
 
-      const dx = draggedObject.wrapper.position.x - sceneObject.wrapper.position.x
-      const dz = draggedObject.wrapper.position.z - sceneObject.wrapper.position.z
-      const collisionDistance = draggedObject.radius + sceneObject.radius
+  private triggerWiggle(sceneObject: SceneObject) {
+    sceneObject.wiggleStrength = 1
+  }
 
-      if (dx * dx + dz * dz <= collisionDistance * collisionDistance) {
-        sceneObject.wiggleStrength = 1
-      }
+  private async applyDisappearEffect(sceneObject: SceneObject) {
+    sceneObject.highlightStrength = 0
+
+    await this.runAnimation(DISAPPEAR_DURATION_SECONDS, (progress) => {
+      sceneObject.effectScale = THREE.MathUtils.lerp(1, 0.12, progress * progress)
     })
+
+    this.hideSceneObject(sceneObject)
+  }
+
+  private async applyDestructEffect(sceneObject: SceneObject) {
+    sceneObject.highlightStrength = 0
+
+    const startPosition = sceneObject.wrapper.position.clone()
+
+    await this.runAnimation(DESTRUCT_DURATION_SECONDS, (progress) => {
+      const intensity = 1 - progress
+      const pulse = 1 + Math.sin(progress * Math.PI * 4.5) * 0.26 + intensity * 0.2
+
+      sceneObject.effectScale = pulse
+      sceneObject.wrapper.position.set(
+        startPosition.x + THREE.MathUtils.randFloatSpread(0.42 * intensity),
+        startPosition.y + THREE.MathUtils.randFloatSpread(0.2 * intensity),
+        startPosition.z + THREE.MathUtils.randFloatSpread(0.42 * intensity),
+      )
+    })
+
+    sceneObject.wrapper.position.copy(startPosition)
+    this.hideSceneObject(sceneObject)
+  }
+
+  private applyHeldEffect(sourceObject: SceneObject, targetObject: SceneObject) {
+    const holdPlacement = targetObject.record.hold
+
+    if (!holdPlacement) {
+      return this.applyDisappearEffect(sourceObject)
+    }
+
+    targetObject.wrapper.add(sourceObject.wrapper)
+    sourceObject.wrapper.position.set(...holdPlacement.anchor)
+    sourceObject.wrapper.rotation.set(0, 0, 0)
+    sourceObject.baseScale = holdPlacement.scale
+    sourceObject.effectScale = 1
+    sourceObject.highlightStrength = 0
+    this.applySceneObjectScale(sourceObject)
+
+    return Promise.resolve()
+  }
+
+  private applyRelationshipEffect(
+    effect: RelationshipEffect,
+    sceneObject: SceneObject,
+    counterpartObject: SceneObject,
+  ) {
+    switch (effect) {
+      case 'NOTHING':
+        return Promise.resolve()
+      case 'RETURN':
+        sceneObject.wrapper.position.copy(sceneObject.homePosition)
+        return Promise.resolve()
+      case 'DISAPPEAR':
+        return this.applyDisappearEffect(sceneObject)
+      case 'DESTRUCT':
+        return this.applyDestructEffect(sceneObject)
+      case 'WIGGLE':
+        this.triggerWiggle(sceneObject)
+        return Promise.resolve()
+      case 'HELD':
+        return this.applyHeldEffect(sceneObject, counterpartObject)
+      default:
+        return Promise.resolve()
+    }
+  }
+
+  private isSuccessfulDrop(draggedObject: SceneObject, dropTarget: SceneObject | null) {
+    if (!this.activeTask || !dropTarget) {
+      return false
+    }
+
+    return (
+      draggedObject.name === this.activeTask.sourceName && dropTarget.name === this.activeTask.targetName
+    )
+  }
+
+  private async resolveSuccessfulDrop(draggedObject: SceneObject, dropTarget: SceneObject) {
+    if (!this.activeTask) {
+      return
+    }
+
+    await Promise.all([
+      this.applyRelationshipEffect(this.activeTask.sourceEffect, draggedObject, dropTarget),
+      this.applyRelationshipEffect(this.activeTask.targetEffect, dropTarget, draggedObject),
+    ])
   }
 
   private updateDraggedObjectPosition() {
@@ -393,11 +586,11 @@ export class BoardScene {
 
     this.dragState.object.wrapper.position.copy(point).add(this.dragState.grabOffset)
     this.dragState.object.wrapper.position.y = DRAG_LIFT
-    this.updateDragTargets()
+    this.dropTargetObject = this.findDropTarget(this.dragState.object)
   }
 
   private updateHoveredObject() {
-    if (this.dragState) {
+    if (this.dragState || this.isResolvingRound) {
       this.hoveredObject = null
       return
     }
