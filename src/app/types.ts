@@ -29,6 +29,7 @@ export type PlacedObject = {
 export type TaskCandidate = {
   key: string
   text: string
+  textIndex: number
   sourceName: string
   targetName: string
   sourceEffect: RelationshipEffect

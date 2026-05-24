@@ -19,10 +19,11 @@ export function findTaskCandidates(placedObjects: PlacedObject[], localeTaskMap:
       const taskKey = `${name}_${verb}_${targetName}`
       const formulations = localeTaskMap[taskKey]
 
-      formulations?.forEach((text) => {
+      formulations?.forEach((text, textIndex) => {
         availableTasks.push({
           key: taskKey,
           text,
+          textIndex,
           sourceEffect,
           sourceName: name,
           targetEffect,

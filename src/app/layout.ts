@@ -8,6 +8,7 @@ type AppLayout = {
   statsModal: HTMLDialogElement
   statsTasksCompletedValue: HTMLParagraphElement
   statsTimePlayedValue: HTMLParagraphElement
+  taskReplayButton: HTMLButtonElement
   taskText: HTMLHeadingElement
 }
 
@@ -43,7 +44,17 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
         </aside>
         <div class="flex min-w-0 flex-1 flex-col">
           <section id="task-panel" class="px-8 pt-7 pb-4 text-center">
-            <h1 id="task-text" class="mx-auto min-h-[1.1em] max-w-5xl text-4xl font-extrabold leading-none text-balance md:text-6xl"></h1>
+            <div class="relative mx-auto max-w-5xl">
+              <h1 id="task-text" class="mx-auto min-h-[1.1em] max-w-5xl pr-14 text-4xl font-extrabold leading-none text-balance md:text-6xl"></h1>
+              <button
+                id="task-replay-button"
+                type="button"
+                class="btn btn-square btn-ghost absolute top-0 right-0"
+                aria-label="Replay task audio"
+                title="Replay task audio"
+                disabled
+              ></button>
+            </div>
           </section>
           <div id="scene" class="min-h-0 flex-1"></div>
         </div>
@@ -104,6 +115,7 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
     statsModal: queryRequiredElement<HTMLDialogElement>(app, '#stats-modal'),
     statsTasksCompletedValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-tasks-completed'),
     statsTimePlayedValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-time-played'),
+    taskReplayButton: queryRequiredElement<HTMLButtonElement>(app, '#task-replay-button'),
     taskText: queryRequiredElement<HTMLHeadingElement>(app, '#task-text'),
   }
 }
