@@ -637,20 +637,11 @@ def hold_anchor_to_offset(bounds: np.ndarray, hold: HoldConfig) -> np.ndarray:
 def transform_preview_object(
     *,
     vertices: np.ndarray,
-    bounds: np.ndarray,
     hold: HoldConfig,
     anchor_offset: np.ndarray,
 ) -> np.ndarray:
-    bottom_center = np.array(
-        [
-            (bounds[0][0] + bounds[1][0]) / 2.0,
-            bounds[0][1],
-            (bounds[0][2] + bounds[1][2]) / 2.0,
-        ],
-        dtype=float,
-    )
-    normalized = vertices - bottom_center
-    return normalized * hold.scale + anchor_offset
+    # Models are baked to a unit box with X/Z centered and the floor at Y=0.
+    return vertices * hold.scale + anchor_offset
 
 
 def build_hold_preview_figure(
@@ -694,7 +685,6 @@ def build_hold_preview_figure(
         held_mesh = load_model_mesh_data(held_model_path)
         held_vertices = transform_preview_object(
             vertices=held_mesh["vertices"],
-            bounds=held_mesh["bounds"],
             hold=hold,
             anchor_offset=anchor_offset if anchor_offset is not None else np.zeros(3, dtype=float),
         )

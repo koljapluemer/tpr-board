@@ -40,6 +40,9 @@ const BOARD_CELLS = [
   new THREE.Vector3(4, 0, 4),
 ]
 const BOARD_CELL_SPACING = 4
+const BOARD_FIELD_SIZE = 3.6
+const BOARD_OBJECT_AREA_FILL_RATIO = 0.75
+const BOARD_OBJECT_BASE_SCALE = BOARD_FIELD_SIZE * Math.sqrt(BOARD_OBJECT_AREA_FILL_RATIO)
 const HOVER_SCALE = 1.08
 const HOVER_DAMPING = 16
 const DRAG_LIFT = 0.9
@@ -178,7 +181,7 @@ export class BoardScene {
   }
 
   private createBoard() {
-    const squareGeometry = new THREE.PlaneGeometry(3.6, 3.6)
+    const squareGeometry = new THREE.PlaneGeometry(BOARD_FIELD_SIZE, BOARD_FIELD_SIZE)
     const lightSquare = new THREE.MeshStandardMaterial({ color: 0xe7e0d3, roughness: 1 })
     const darkSquare = new THREE.MeshStandardMaterial({ color: 0xd8cfbf, roughness: 1 })
 
@@ -255,7 +258,8 @@ export class BoardScene {
       const dx = draggedObject.wrapper.position.x - sceneObject.wrapper.position.x
       const dz = draggedObject.wrapper.position.z - sceneObject.wrapper.position.z
       const distanceSquared = dx * dx + dz * dz
-      const collisionDistance = draggedObject.radius + sceneObject.radius
+      const collisionDistance =
+        draggedObject.radius * draggedObject.baseScale + sceneObject.radius * sceneObject.baseScale
 
       if (distanceSquared > collisionDistance * collisionDistance) {
         return
@@ -303,25 +307,12 @@ export class BoardScene {
     this.applySceneObjectScale(sceneObject)
   }
 
-  private normalizeModel(model: THREE.Group) {
+  private measureModelRadius(model: THREE.Group) {
     const box = new THREE.Box3().setFromObject(model)
     const size = box.getSize(new THREE.Vector3())
-    const maxDimension = Math.max(size.x, size.y, size.z) || 1
-    const scale = 2.2 / maxDimension
-
-    model.scale.setScalar(scale)
-
-    const scaledBox = new THREE.Box3().setFromObject(model)
-    const center = scaledBox.getCenter(new THREE.Vector3())
-
-    model.position.x -= center.x
-    model.position.y -= scaledBox.min.y
-    model.position.z -= center.z
-
-    const scaledSize = scaledBox.getSize(new THREE.Vector3())
 
     return {
-      radius: Math.max(scaledSize.x, scaledSize.z) * 0.45,
+      radius: Math.max(size.x, size.z) * 0.45,
     }
   }
 
@@ -362,7 +353,7 @@ export class BoardScene {
         const gltf = await this.loadModel(record.model)
         const wrapper = new THREE.Group()
 
-        const { radius } = this.normalizeModel(gltf.scene)
+        const { radius } = this.measureModelRadius(gltf.scene)
 
         wrapper.add(gltf.scene)
         wrapper.position.copy(cell)
@@ -376,7 +367,7 @@ export class BoardScene {
           radius,
           wigglePhase: Math.random() * Math.PI * 2,
           wiggleStrength: 0,
-          baseScale: 1,
+          baseScale: BOARD_OBJECT_BASE_SCALE,
           effectScale: 1,
           highlightStrength: 0,
         } satisfies SceneObject
