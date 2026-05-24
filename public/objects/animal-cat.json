@@ -1,3 +1,18 @@
 {
-    "model": "k-cube-pets/animal-cat.glb"
+    "model": "k-cube-pets/animal-cat.glb",
+    "hold": {
+        "anchor": [
+            0.03,
+            -0.36,
+            1.06
+        ],
+        "scale": 0.88
+    },
+    "relationships": {
+        "meat-raw": [
+            "eat",
+            "RETURN",
+            "DESTRUCT"
+        ]
+    }
 }

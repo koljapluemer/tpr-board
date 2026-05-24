@@ -1,3 +1,10 @@
 {
-    "model": "k-cube-pets/animal-monkey.glb"
+    "model": "k-cube-pets/animal-monkey.glb",
+    "relationships": {
+        "banana": [
+            "eat",
+            "RETURN",
+            "DESTRUCT"
+        ]
+    }
 }

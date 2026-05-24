@@ -107,3 +107,4 @@ flag
 palm
 ship
 shovel
+ambulance

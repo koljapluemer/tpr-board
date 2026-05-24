@@ -1,3 +1,23 @@
 {
-    "model": "k-furniture/books.glb"
+    "model": "k-furniture/books.glb",
+    "hold": {
+        "anchor": [
+            -0.1,
+            1.03,
+            0.17
+        ],
+        "scale": 0.13
+    },
+    "relationships": {
+        "car-van": [
+            "put-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ],
+        "house": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }

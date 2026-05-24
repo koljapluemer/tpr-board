@@ -1,0 +1,15 @@
+{
+    "model": "k-car-kit/ambulance.glb",
+    "relationships": {
+        "factory": [
+            "drive-to",
+            "HELD",
+            "NOTHING"
+        ],
+        "house": [
+            "drive-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
+}

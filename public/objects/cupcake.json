@@ -1,3 +1,25 @@
 {
-    "model": "k-food/cupcake.glb"
+    "model": "k-food/cupcake.glb",
+    "relationships": {
+        "person-female": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "person-male": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "table": [
+            "put-on",
+            "HELD",
+            "NOTHING"
+        ],
+        "trashcan": [
+            "put-in",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

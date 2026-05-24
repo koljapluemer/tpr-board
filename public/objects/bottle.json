@@ -1,3 +1,20 @@
 {
-    "model": "k-pirate-kit/bottle.glb"
+    "model": "k-pirate-kit/bottle.glb",
+    "relationships": {
+        "person-female": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "person-male": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

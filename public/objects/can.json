@@ -1,3 +1,20 @@
 {
-    "model": "k-food/can.glb"
+    "model": "k-food/can.glb",
+    "relationships": {
+        "person-female": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "person-male": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "kitchen-sink": [
+            "put-into",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }
