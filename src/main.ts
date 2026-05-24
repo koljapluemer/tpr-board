@@ -1,34 +1,16 @@
 import './style.css'
-import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
-type ObjectRecord = {
-  model: string
-  relationships?: Record<string, string[]>
-}
+import { Languages } from 'lucide'
 
-type LocaleTaskMap = Record<string, string[]>
+import { BoardScene } from './app/board-scene'
+import { loadLanguageCodes, loadLocaleTaskMap, loadObjectPool } from './app/data'
+import { createLucideIcon } from './app/icons'
+import { createAppLayout } from './app/layout'
+import { findPossibleTasks, selectBoardObjects } from './app/tasks'
+import type { PlacedObject } from './app/types'
+import { randomItem } from './app/utils'
 
-type PlacedObject = {
-  name: string
-  record: ObjectRecord
-}
-
-type SceneObject = PlacedObject & {
-  wrapper: THREE.Group
-  homePosition: THREE.Vector3
-  radius: number
-  yawVelocity: number
-  wigglePhase: number
-  wiggleStrength: number
-}
-
-type DragState = {
-  object: SceneObject
-  pointerId: number
-  grabOffset: THREE.Vector3
-}
+const LANGUAGE_STORAGE_KEY = 'tpr-board.language-code'
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -36,558 +18,101 @@ if (!app) {
   throw new Error('App root not found.')
 }
 
-app.innerHTML = `
-  <div id="layout">
-    <section id="task-panel">
-      <h1 id="task-text"></h1>
-    </section>
-    <div id="scene"></div>
-  </div>
-`
+const layout = createAppLayout(app)
+const boardScene = new BoardScene(layout.sceneRoot)
 
-const sceneRoot = document.querySelector<HTMLDivElement>('#scene')!
-const taskText = document.querySelector<HTMLHeadingElement>('#task-text')!
-
-const scene = new THREE.Scene()
-
-const CAMERA_POSITION = new THREE.Vector3(3, 18, 15)
-const CAMERA_ROTATION = new THREE.Euler(-0.98, 0, 0, 'XYZ')
-
-const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
-camera.position.copy(CAMERA_POSITION)
-camera.rotation.copy(CAMERA_ROTATION)
-
-const renderer = new THREE.WebGLRenderer({ antialias: true })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-renderer.setClearColor(0xf1eee7, 1)
-sceneRoot.appendChild(renderer.domElement)
-
-const raycaster = new THREE.Raycaster()
-const pointer = new THREE.Vector2(2, 2)
-const boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
-const planeIntersection = new THREE.Vector3()
-const grabPoint = new THREE.Vector3()
-const hoverableObjects: SceneObject[] = []
-const HOVER_YAW_SPEED = Math.PI / 3
-const HOVER_ACCELERATION = 10
-const DRAG_LIFT = 0.9
-const WIGGLE_SPEED = 26
-const WIGGLE_DAMPING = 14
-const WIGGLE_ANGLE = 0.14
-const SPAWN_YAW_VARIATION = Math.PI / 6
-
-let hoveredObject: SceneObject | null = null
-let dragState: DragState | null = null
-let lastFrameTime = performance.now()
-
-scene.add(new THREE.AmbientLight(0xffffff, 1.8))
-
-const keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
-keyLight.position.set(6, 12, 8)
-scene.add(keyLight)
-
-const fillLight = new THREE.DirectionalLight(0xffffff, 1.2)
-fillLight.position.set(-5, 8, -6)
-scene.add(fillLight)
-
-const spawnLookTarget = new THREE.Vector3()
-
-const gridCells = [
-  new THREE.Vector3(-4, 0, -4),
-  new THREE.Vector3(0, 0, -4),
-  new THREE.Vector3(4, 0, -4),
-  new THREE.Vector3(-4, 0, 0),
-  new THREE.Vector3(0, 0, 0),
-  new THREE.Vector3(4, 0, 0),
-  new THREE.Vector3(-4, 0, 4),
-  new THREE.Vector3(0, 0, 4),
-  new THREE.Vector3(4, 0, 4),
-]
-
-function randomItem<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)]
+const state = {
+  languageCodes: [] as string[],
+  placedObjects: [] as PlacedObject[],
+  selectedLanguageCode: '',
 }
 
-function shuffled<T>(items: T[]): T[] {
-  const copy = [...items]
+layout.languageButton.appendChild(
+  createLucideIcon(Languages, { class: 'size-5', width: '20', height: '20' }),
+)
+layout.languageButton.addEventListener('click', () => {
+  layout.languageModal.showModal()
+})
 
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    ;[copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]]
+function getInitialLanguageCode(languageCodes: string[]) {
+  if (!languageCodes.length) {
+    throw new Error('No language codes were found.')
   }
 
-  return copy
-}
+  const savedLanguageCode = localStorage.getItem(LANGUAGE_STORAGE_KEY)
 
-function resizeRenderer() {
-  const { clientWidth, clientHeight } = sceneRoot
-
-  if (!clientWidth || !clientHeight) {
-    return
+  if (savedLanguageCode && languageCodes.includes(savedLanguageCode)) {
+    return savedLanguageCode
   }
 
-  camera.aspect = clientWidth / clientHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(clientWidth, clientHeight, true)
-  renderer.render(scene, camera)
+  return languageCodes[0]
 }
 
-function findSceneObject(target: THREE.Object3D | null) {
-  let current: THREE.Object3D | null = target
-
-  while (current) {
-    const sceneObject = current.userData.sceneObject as SceneObject | undefined
-
-    if (sceneObject) {
-      return sceneObject
-    }
-
-    current = current.parent
-  }
-
-  return null
+function setTaskText(task: string) {
+  layout.taskText.textContent = task
 }
 
-function updateHoveredObject() {
-  if (dragState) {
-    hoveredObject = null
-    return
-  }
+function updateLanguageButtons() {
+  layout.currentLanguageText.textContent = `Current: ${state.selectedLanguageCode}`
+  layout.languageButton.title = `Learning language: ${state.selectedLanguageCode}`
 
-  raycaster.setFromCamera(pointer, camera)
+  const buttons = layout.languageOptions.querySelectorAll<HTMLButtonElement>('button[data-language-code]')
 
-  const intersections = raycaster.intersectObjects(
-    hoverableObjects.map(({ wrapper }) => wrapper),
-    true,
-  )
-
-  hoveredObject = findSceneObject(intersections[0]?.object ?? null)
-}
-
-function setPointerFromEvent(event: PointerEvent) {
-  const bounds = renderer.domElement.getBoundingClientRect()
-
-  if (!bounds.width || !bounds.height) {
-    return false
-  }
-
-  pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-  pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1
-
-  return true
-}
-
-function clearHoveredObject() {
-  if (dragState) {
-    return
-  }
-
-  pointer.set(2, 2)
-  hoveredObject = null
-}
-
-function projectPointerToBoard() {
-  raycaster.setFromCamera(pointer, camera)
-
-  return raycaster.ray.intersectPlane(boardPlane, planeIntersection)
-}
-
-function updateDragTargets() {
-  const draggedObject = dragState?.object
-
-  hoverableObjects.forEach((sceneObject) => {
-    if (sceneObject === draggedObject || !draggedObject) {
-      return
-    }
-
-    const dx = draggedObject.wrapper.position.x - sceneObject.wrapper.position.x
-    const dz = draggedObject.wrapper.position.z - sceneObject.wrapper.position.z
-    const collisionDistance = draggedObject.radius + sceneObject.radius
-
-    if (dx * dx + dz * dz <= collisionDistance * collisionDistance) {
-      sceneObject.wiggleStrength = 1
-    }
+  buttons.forEach((button) => {
+    const isSelected = button.dataset.languageCode === state.selectedLanguageCode
+    button.classList.toggle('btn-primary', isSelected)
+    button.classList.toggle('btn-outline', !isSelected)
+    button.setAttribute('aria-pressed', String(isSelected))
   })
 }
 
-function updateDraggedObjectPosition() {
-  if (!dragState) {
-    return
-  }
-
-  const point = projectPointerToBoard()
-
-  if (!point) {
-    return
-  }
-
-  dragState.object.wrapper.position.copy(point).add(dragState.grabOffset)
-  dragState.object.wrapper.position.y = DRAG_LIFT
-  updateDragTargets()
+function showRandomTask(localeTaskMap: Awaited<ReturnType<typeof loadLocaleTaskMap>>) {
+  const availableTasks = findPossibleTasks(state.placedObjects, localeTaskMap)
+  setTaskText(availableTasks.length ? randomItem(availableTasks) : '')
 }
 
-function startDrag(event: PointerEvent) {
-  if (dragState) {
-    return
-  }
+async function selectLanguage(languageCode: string) {
+  const localeTaskMap = await loadLocaleTaskMap(languageCode)
 
-  if (!setPointerFromEvent(event)) {
-    return
-  }
-
-  updateHoveredObject()
-
-  if (!hoveredObject) {
-    return
-  }
-
-  const point = projectPointerToBoard()
-
-  if (!point) {
-    return
-  }
-
-  const object = hoveredObject
-  dragState = {
-    object,
-    pointerId: event.pointerId,
-    grabOffset: grabPoint.copy(object.wrapper.position).sub(point),
-  }
-  object.wrapper.position.y = DRAG_LIFT
-  hoveredObject = null
-  renderer.domElement.setPointerCapture(event.pointerId)
-  updateDraggedObjectPosition()
+  state.selectedLanguageCode = languageCode
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, languageCode)
+  updateLanguageButtons()
+  showRandomTask(localeTaskMap)
+  layout.languageModal.close()
 }
 
-function stopDrag(pointerId: number) {
-  if (!dragState || dragState.pointerId !== pointerId) {
-    return
-  }
-
-  if (renderer.domElement.hasPointerCapture(pointerId)) {
-    renderer.domElement.releasePointerCapture(pointerId)
-  }
-
-  dragState.object.wrapper.position.copy(dragState.object.homePosition)
-  dragState = null
-  updateHoveredObject()
-}
-
-function handlePointerDown(event: PointerEvent) {
-  startDrag(event)
-}
-
-function handlePointerMove(event: PointerEvent) {
-  if (!setPointerFromEvent(event)) {
-    return
-  }
-
-  if (dragState?.pointerId === event.pointerId) {
-    updateDraggedObjectPosition()
-    return
-  }
-
-  updateHoveredObject()
-}
-
-function handlePointerUp(event: PointerEvent) {
-  stopDrag(event.pointerId)
-}
-
-function handlePointerCancel(event: PointerEvent) {
-  stopDrag(event.pointerId)
-}
-
-function createBoard() {
-  const squareGeometry = new THREE.PlaneGeometry(3.6, 3.6)
-  const lightSquare = new THREE.MeshStandardMaterial({ color: 0xe7e0d3, roughness: 1 })
-  const darkSquare = new THREE.MeshStandardMaterial({ color: 0xd8cfbf, roughness: 1 })
-
-  gridCells.forEach((cell, index) => {
-    const row = Math.floor(index / 3)
-    const column = index % 3
-    const square = new THREE.Mesh(
-      squareGeometry,
-      (row + column) % 2 === 0 ? lightSquare : darkSquare,
-    )
-
-    square.rotation.x = -Math.PI / 2
-    square.position.set(cell.x, -0.02, cell.z)
-    scene.add(square)
-  })
-}
-
-function normalizeModel(model: THREE.Group) {
-  const box = new THREE.Box3().setFromObject(model)
-  const size = box.getSize(new THREE.Vector3())
-  const maxDimension = Math.max(size.x, size.y, size.z) || 1
-  const scale = 2.2 / maxDimension
-
-  model.scale.setScalar(scale)
-
-  const scaledBox = new THREE.Box3().setFromObject(model)
-  const center = scaledBox.getCenter(new THREE.Vector3())
-
-  model.position.x -= center.x
-  model.position.y -= scaledBox.min.y
-  model.position.z -= center.z
-
-  const scaledSize = scaledBox.getSize(new THREE.Vector3())
-
-  return {
-    radius: Math.max(scaledSize.x, scaledSize.z) * 0.45,
-  }
-}
-
-function orientSpawnedObjectTowardCamera(wrapper: THREE.Object3D) {
-  spawnLookTarget.set(camera.position.x, wrapper.position.y, camera.position.z)
-  wrapper.lookAt(spawnLookTarget)
-  wrapper.rotateY(THREE.MathUtils.randFloatSpread(SPAWN_YAW_VARIATION * 2))
-}
-
-async function loadObjectNames() {
-  const response = await fetch('/objects/_index.txt')
-  const text = await response.text()
-
-  return text
-    .split('\n')
-    .map((name) => name.trim())
-    .filter(Boolean)
-}
-
-async function loadJson<T>(url: string, errorMessage: string): Promise<T> {
-  const response = await fetch(url)
-
-  if (!response.ok) {
-    throw new Error(`${errorMessage} (${response.status} ${response.statusText})`)
-  }
-
-  const contentType = response.headers.get('content-type') ?? ''
-
-  if (!contentType.includes('application/json')) {
-    const body = (await response.text()).slice(0, 120)
-    throw new Error(
-      `${errorMessage} (expected JSON, got ${contentType || 'unknown content type'}): ${body}`,
-    )
-  }
-
-  return (await response.json()) as T
-}
-
-async function loadObjectRecord(name: string) {
-  return loadJson<ObjectRecord>(`/objects/${name}.json`, `Failed to load object record: ${name}`)
-}
-
-async function loadLocaleTaskMap() {
-  return loadJson<LocaleTaskMap>('/tpr-board-data/deu/deu.json', 'Failed to load German task strings.')
-}
-
-async function loadObjectPool() {
-  const objectNames = await loadObjectNames()
-
-  return Promise.all(
-    objectNames.map(async (name) => ({
-      name,
-      record: await loadObjectRecord(name),
-    })),
-  )
-}
-
-async function loadModel(modelPath: string): Promise<GLTF> {
-  const manager = new THREE.LoadingManager()
-  const modelFolder = modelPath.slice(0, modelPath.lastIndexOf('/'))
-
-  manager.setURLModifier((url) => {
-    if (url.endsWith('Textures/colormap.png')) {
-      return `/models/${modelFolder}/colormap.png`
-    }
-
-    return url
-  })
-
-  const loader = new GLTFLoader(manager)
-
-  return loader.loadAsync(`/models/${modelPath}`)
-}
-
-function objectHasRelationships(record: ObjectRecord) {
-  return Object.keys(record.relationships ?? {}).length > 0
-}
-
-function findPossibleTasks(placedObjects: PlacedObject[], localeTaskMap: LocaleTaskMap) {
-  const availableTasks: string[] = []
-  const placedObjectNames = new Set(placedObjects.map((placedObject) => placedObject.name))
-
-  placedObjects.forEach(({ name, record }) => {
-    Object.entries(record.relationships ?? {}).forEach(([targetName, actions]) => {
-      if (!placedObjectNames.has(targetName)) {
-        return
-      }
-
-      actions.forEach((action) => {
-        const taskKey = `${name}_${action}_${targetName}`
-        const formulations = localeTaskMap[taskKey]
-
-        if (formulations?.length) {
-          availableTasks.push(...formulations)
-        }
+function renderLanguageOptions() {
+  layout.languageOptions.replaceChildren(
+    ...state.languageCodes.map((languageCode) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.dataset.languageCode = languageCode
+      button.className = 'btn w-full justify-start'
+      button.textContent = languageCode
+      button.addEventListener('click', () => {
+        void selectLanguage(languageCode)
       })
-    })
-  })
-
-  return availableTasks
-}
-
-function findRelatedObjectPool(
-  placedObjects: PlacedObject[],
-  objectPoolByName: Map<string, ObjectRecord>,
-) {
-  const placedObjectNames = new Set(placedObjects.map(({ name }) => name))
-  const relatedObjectNames = new Set<string>()
-
-  placedObjects.forEach(({ record }) => {
-    Object.keys(record.relationships ?? {}).forEach((targetName) => {
-      if (!placedObjectNames.has(targetName) && objectPoolByName.has(targetName)) {
-        relatedObjectNames.add(targetName)
-      }
-    })
-  })
-
-  return shuffled([...relatedObjectNames]).map((name) => ({
-    name,
-    record: objectPoolByName.get(name)!,
-  }))
-}
-
-function selectBoardObjects(objectPool: PlacedObject[], localeTaskMap: LocaleTaskMap) {
-  const selectableObjects = shuffled(objectPool.filter(({ record }) => objectHasRelationships(record)))
-
-  if (!selectableObjects.length) {
-    throw new Error('No objects with relationships were found.')
-  }
-
-  const selectedObjects = selectableObjects.slice(0, Math.min(4, gridCells.length))
-
-  if (findPossibleTasks(selectedObjects, localeTaskMap).length > 0) {
-    return selectedObjects
-  }
-
-  if (selectedObjects.length >= gridCells.length) {
-    return selectedObjects
-  }
-
-  const objectPoolByName = new Map(objectPool.map(({ name, record }) => [name, record]))
-  const relatedCandidates = findRelatedObjectPool(selectedObjects, objectPoolByName)
-
-  if (!relatedCandidates.length) {
-    return selectedObjects
-  }
-
-  const candidateThatUnlocksTask =
-    relatedCandidates.find((candidate) => {
-      return findPossibleTasks([...selectedObjects, candidate], localeTaskMap).length > 0
-    }) ?? relatedCandidates[0]
-
-  return [...selectedObjects, candidateThatUnlocksTask]
-}
-
-async function placeObjects(placedObjects: PlacedObject[]) {
-  const occupiedCells = shuffled(gridCells).slice(0, placedObjects.length)
-  const placedSceneObjects = await Promise.all(
-    placedObjects.map(async ({ name: objectName, record }, index) => {
-      const cell = occupiedCells[index]
-
-      if (!cell) {
-        throw new Error('Not enough grid cells available for the selected objects.')
-      }
-
-      const gltf = await loadModel(record.model)
-      const wrapper = new THREE.Group()
-
-      const { radius } = normalizeModel(gltf.scene)
-      wrapper.add(gltf.scene)
-      wrapper.position.copy(cell)
-      orientSpawnedObjectTowardCamera(wrapper)
-
-      const sceneObject = {
-        name: objectName,
-        record,
-        wrapper,
-        homePosition: cell.clone(),
-        radius,
-        yawVelocity: 0,
-        wigglePhase: Math.random() * Math.PI * 2,
-        wiggleStrength: 0,
-      } satisfies SceneObject
-
-      wrapper.userData.sceneObject = sceneObject
-      hoverableObjects.push(sceneObject)
-      scene.add(wrapper)
-      return sceneObject
+      return button
     }),
   )
 
-  return placedSceneObjects
-}
-
-function showTask(task: string) {
-  taskText.textContent = task
-}
-
-function animate(now: number) {
-  const deltaSeconds = Math.min((now - lastFrameTime) / 1000, 0.05)
-  lastFrameTime = now
-
-  hoverableObjects.forEach((sceneObject) => {
-    const targetVelocity =
-      !dragState && sceneObject === hoveredObject ? HOVER_YAW_SPEED : 0
-    sceneObject.yawVelocity = THREE.MathUtils.damp(
-      sceneObject.yawVelocity,
-      targetVelocity,
-      HOVER_ACCELERATION,
-      deltaSeconds,
-    )
-    sceneObject.wrapper.rotation.y += sceneObject.yawVelocity * deltaSeconds
-    sceneObject.wiggleStrength = THREE.MathUtils.damp(
-      sceneObject.wiggleStrength,
-      0,
-      WIGGLE_DAMPING,
-      deltaSeconds,
-    )
-    sceneObject.wigglePhase += deltaSeconds * WIGGLE_SPEED
-    sceneObject.wrapper.rotation.z =
-      Math.sin(sceneObject.wigglePhase) * sceneObject.wiggleStrength * WIGGLE_ANGLE
-  })
-
-  renderer.render(scene, camera)
-  window.requestAnimationFrame(animate)
+  updateLanguageButtons()
 }
 
 async function init() {
-  createBoard()
-  const [objectPool, localeTaskMap] = await Promise.all([loadObjectPool(), loadLocaleTaskMap()])
-  const selectedObjects = selectBoardObjects(objectPool, localeTaskMap)
-  const placedObjects = await placeObjects(selectedObjects)
-  const availableTasks = findPossibleTasks(placedObjects, localeTaskMap)
+  const [languageCodes, objectPool] = await Promise.all([loadLanguageCodes(), loadObjectPool()])
 
-  showTask(
-    availableTasks.length
-      ? randomItem(availableTasks)
-      : '',
-  )
+  state.languageCodes = languageCodes
+  state.selectedLanguageCode = getInitialLanguageCode(languageCodes)
 
-  resizeRenderer()
+  const localeTaskMap = await loadLocaleTaskMap(state.selectedLanguageCode)
+  state.placedObjects = selectBoardObjects(objectPool, localeTaskMap)
+
+  renderLanguageOptions()
+  await boardScene.initialize(state.placedObjects)
+  showRandomTask(localeTaskMap)
 }
-
-window.addEventListener('resize', resizeRenderer)
-renderer.domElement.addEventListener('pointerdown', handlePointerDown)
-renderer.domElement.addEventListener('pointermove', handlePointerMove)
-renderer.domElement.addEventListener('pointerup', handlePointerUp)
-renderer.domElement.addEventListener('pointercancel', handlePointerCancel)
-renderer.domElement.addEventListener('pointerleave', clearHoveredObject)
 
 init().catch((error) => {
   console.error(error)
 })
-
-window.requestAnimationFrame(animate)
