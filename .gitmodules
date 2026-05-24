@@ -1,0 +1,3 @@
+[submodule "public/tpr-board-data"]
+	path = public/tpr-board-data
+	url = git@github.com:koljapluemer/tpr-board-data.git

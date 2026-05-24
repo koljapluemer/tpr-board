@@ -28,11 +28,15 @@ uv run streamlit run app.py
 ## Schema rules preserved
 
 - `_index.txt` stays newline-delimited, one slug per line
-- Object JSON keeps the current runtime shape:
+- Object JSON supports the current runtime relationship shape plus an optional object-level `hold` block:
 
 ```json
 {
     "model": "k-food/apple.glb",
+    "hold": {
+        "anchor": [0.0, 0.8, 0.0],
+        "scale": 0.35
+    },
     "relationships": {
         "banana": ["cut", "RETURN", "DESTRUCT"]
     }
@@ -40,3 +44,4 @@ uv run streamlit run app.py
 ```
 
 - `relationships` is omitted when empty
+- `hold` is omitted when the object has no hold placement defined

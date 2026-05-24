@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
 import streamlit as st
@@ -25,6 +26,16 @@ TPR_BOARD_DATA_DIR = PUBLIC_DIR / "tpr-board-data"
 TPR_BOARD_DATA_INDEX_PATH = TPR_BOARD_DATA_DIR / "index.txt"
 EFFECT_OPTIONS = ("NOTHING", "RETURN", "DISAPPEAR", "DESTRUCT", "WIGGLE", "HELD")
 RELATIONSHIP_COLUMNS = ["Target", "Verb", "Effect on A", "Effect on B"]
+HOLD_ANCHOR_RANGE = (-1.5, 1.5)
+HOLD_SCALE_RANGE = (0.01, 1.0)
+DEFAULT_HOLD_ANCHOR = (0.0, 0.0, 0.0)
+DEFAULT_HOLD_SCALE = 0.35
+
+
+@dataclass(frozen=True)
+class HoldConfig:
+    anchor: tuple[float, float, float]
+    scale: float
 
 
 @dataclass(frozen=True)
@@ -32,6 +43,7 @@ class ObjectRecord:
     slug: str
     model: str
     relationships: dict[str, list[str]]
+    hold: HoldConfig | None
 
 
 @dataclass(frozen=True)
@@ -197,6 +209,47 @@ def validate_relationships(value: Any, *, path: Path) -> dict[str, list[str]]:
     return normalized
 
 
+def validate_hold(value: Any, *, path: Path) -> HoldConfig | None:
+    if value is None:
+        return None
+
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.name}: hold must be an object")
+
+    anchor = value.get("anchor")
+    scale = value.get("scale")
+
+    if not isinstance(anchor, list | tuple) or len(anchor) != 3:
+        raise ValueError(f"{path.name}: hold.anchor must be an array of 3 numbers")
+
+    normalized_anchor: list[float] = []
+
+    for index, coordinate in enumerate(anchor):
+        if not isinstance(coordinate, int | float) or isinstance(coordinate, bool):
+            raise ValueError(
+                f"{path.name}: hold.anchor[{index}] must be a number"
+            )
+
+        normalized_anchor.append(float(coordinate))
+
+    if not isinstance(scale, int | float) or isinstance(scale, bool):
+        raise ValueError(f"{path.name}: hold.scale must be a number")
+
+    normalized_scale = float(scale)
+
+    if normalized_scale <= 0:
+        raise ValueError(f"{path.name}: hold.scale must be greater than 0")
+
+    return HoldConfig(
+        anchor=(
+            normalized_anchor[0],
+            normalized_anchor[1],
+            normalized_anchor[2],
+        ),
+        scale=normalized_scale,
+    )
+
+
 def load_object_record(path: Path) -> ObjectRecord:
     data = json.loads(path.read_text(encoding="utf-8"))
 
@@ -209,8 +262,9 @@ def load_object_record(path: Path) -> ObjectRecord:
         raise ValueError(f"{path.name}: model must be a non-empty string")
 
     relationships = validate_relationships(data.get("relationships"), path=path)
+    hold = validate_hold(data.get("hold"), path=path)
 
-    return ObjectRecord(slug=path.stem, model=model, relationships=relationships)
+    return ObjectRecord(slug=path.stem, model=model, relationships=relationships, hold=hold)
 
 
 def discover_models() -> list[str]:
@@ -274,8 +328,22 @@ def load_repository_state() -> RepositoryState:
     )
 
 
-def serialize_object_payload(model: str, relationships: dict[str, list[str]]) -> str:
+def hold_to_json_payload(hold: HoldConfig) -> dict[str, Any]:
+    return {
+        "anchor": [round(coordinate, 4) for coordinate in hold.anchor],
+        "scale": round(hold.scale, 4),
+    }
+
+
+def serialize_object_payload(
+    model: str,
+    relationships: dict[str, list[str]],
+    hold: HoldConfig | None,
+) -> str:
     payload: dict[str, Any] = {"model": model}
+
+    if hold:
+        payload["hold"] = hold_to_json_payload(hold)
 
     if relationships:
         payload["relationships"] = relationships
@@ -289,6 +357,7 @@ def save_object_record(
     new_slug: str,
     model: str,
     relationships: dict[str, list[str]],
+    hold: HoldConfig | None,
 ) -> None:
     OBJECTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -296,7 +365,7 @@ def save_object_record(
     previous_path = OBJECTS_DIR / f"{current_slug}.json" if current_slug else None
 
     target_path.write_text(
-        serialize_object_payload(model, relationships),
+        serialize_object_payload(model, relationships, hold),
         encoding="utf-8",
     )
 
@@ -446,8 +515,26 @@ def collect_inbound_relationships(state: RepositoryState, target_slug: str | Non
     return pd.DataFrame(rows)
 
 
+def collect_inbound_hold_sources(state: RepositoryState, target_slug: str | None) -> list[str]:
+    if not target_slug:
+        return []
+
+    sources: list[str] = []
+
+    for source_slug, record in sorted(state.records_by_slug.items()):
+        actions = record.relationships.get(target_slug)
+
+        if not actions:
+            continue
+
+        if normalize_effect(actions[1] if len(actions) > 1 else None) == "HELD":
+            sources.append(source_slug)
+
+    return sources
+
+
 @st.cache_data(show_spinner=False)
-def build_model_preview_figure(model_path: str) -> go.Figure:
+def load_model_mesh_data(model_path: str) -> dict[str, np.ndarray]:
     full_model_path = MODELS_DIR / model_path
     loaded = trimesh.load(full_model_path, force="scene")
 
@@ -471,47 +558,153 @@ def build_model_preview_figure(model_path: str) -> go.Figure:
         raise ValueError("No mesh geometry found in model")
 
     merged_mesh = trimesh.util.concatenate(meshes)
-    vertices = merged_mesh.vertices
-    faces = merged_mesh.faces
+    return {
+        "vertices": np.asarray(merged_mesh.vertices, dtype=float),
+        "faces": np.asarray(merged_mesh.faces, dtype=int),
+        "bounds": np.asarray(merged_mesh.bounds, dtype=float),
+    }
+
+
+def make_mesh_trace(
+    *,
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    color: str,
+    opacity: float,
+    name: str,
+) -> go.Mesh3d:
+    return go.Mesh3d(
+        x=vertices[:, 0],
+        y=vertices[:, 2],
+        z=vertices[:, 1],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        color=color,
+        opacity=opacity,
+        flatshading=True,
+        hovertemplate=f"{name}<extra></extra>",
+        lighting={
+            "ambient": 0.68,
+            "diffuse": 0.88,
+            "fresnel": 0.08,
+            "roughness": 0.9,
+            "specular": 0.15,
+        },
+        lightposition={"x": 120, "y": 80, "z": 160},
+        name=name,
+    )
+
+
+def recenter_vertices(vertices: np.ndarray, center: np.ndarray) -> np.ndarray:
+    return np.asarray(vertices - center, dtype=float)
+
+
+def safe_half_extents(bounds: np.ndarray) -> np.ndarray:
+    return np.maximum((bounds[1] - bounds[0]) / 2.0, 1e-6)
+
+
+def hold_anchor_to_offset(bounds: np.ndarray, hold: HoldConfig) -> np.ndarray:
+    anchor = np.asarray(hold.anchor, dtype=float)
+    return anchor * safe_half_extents(bounds)
+
+
+def transform_preview_object(
+    *,
+    vertices: np.ndarray,
+    bounds: np.ndarray,
+    hold: HoldConfig,
+    anchor_offset: np.ndarray,
+) -> np.ndarray:
+    bottom_center = np.array(
+        [
+            (bounds[0][0] + bounds[1][0]) / 2.0,
+            bounds[0][1],
+            (bounds[0][2] + bounds[1][2]) / 2.0,
+        ],
+        dtype=float,
+    )
+    normalized = vertices - bottom_center
+    return normalized * hold.scale + anchor_offset
+
+
+def build_hold_preview_figure(
+    *,
+    base_model_path: str,
+    held_model_path: str | None,
+    hold: HoldConfig | None,
+    preview_slug: str | None,
+) -> go.Figure:
+    base_mesh = load_model_mesh_data(base_model_path)
+    base_center = base_mesh["bounds"].mean(axis=0)
+    base_vertices = recenter_vertices(base_mesh["vertices"], base_center)
+
+    traces: list[Any] = [
+        make_mesh_trace(
+            vertices=base_vertices,
+            faces=base_mesh["faces"],
+            color="#d7b185",
+            opacity=1.0,
+            name="target object",
+        )
+    ]
+
+    anchor_offset = None
+
+    if hold:
+        anchor_offset = hold_anchor_to_offset(base_mesh["bounds"], hold)
+        traces.append(
+            go.Scatter3d(
+                x=[anchor_offset[0]],
+                y=[anchor_offset[2]],
+                z=[anchor_offset[1]],
+                mode="markers",
+                marker={"size": 6, "color": "#b83b1b"},
+                hovertemplate="hold anchor<extra></extra>",
+                name="hold anchor",
+            )
+        )
+
+    if hold and held_model_path and preview_slug:
+        held_mesh = load_model_mesh_data(held_model_path)
+        held_vertices = transform_preview_object(
+            vertices=held_mesh["vertices"],
+            bounds=held_mesh["bounds"],
+            hold=hold,
+            anchor_offset=anchor_offset if anchor_offset is not None else np.zeros(3, dtype=float),
+        )
+        traces.append(
+            make_mesh_trace(
+                vertices=held_vertices,
+                faces=held_mesh["faces"],
+                color="#d66b47",
+                opacity=0.96,
+                name=f"preview object: {preview_slug}",
+            )
+        )
 
     figure = go.Figure(
-        data=[
-            go.Mesh3d(
-                x=vertices[:, 0],
-                y=vertices[:, 2],
-                z=vertices[:, 1],
-                i=faces[:, 0],
-                j=faces[:, 1],
-                k=faces[:, 2],
-                color="#d66b47",
-                flatshading=True,
-                hoverinfo="skip",
-                lighting={
-                    "ambient": 0.65,
-                    "diffuse": 0.85,
-                    "fresnel": 0.1,
-                    "roughness": 0.9,
-                    "specular": 0.15,
-                },
-                lightposition={"x": 120, "y": 80, "z": 160},
-            )
-        ]
+        data=traces
     )
 
     figure.update_layout(
+        height=660,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
         paper_bgcolor="#f7f1e5",
+        uirevision=f"hold-preview::{base_model_path}",
         scene={
             "aspectmode": "data",
             "bgcolor": "#f7f1e5",
             "camera": {
-                "eye": {"x": 1.45, "y": 1.3, "z": 0.9},
+                "eye": {"x": 1.55, "y": 1.35, "z": 0.95},
                 "up": {"x": 0, "y": 0, "z": 1},
             },
             "xaxis": {"visible": False},
             "yaxis": {"visible": False},
             "zaxis": {"visible": False},
         },
+        scene_dragmode="orbit",
+        showlegend=False,
     )
 
     return figure
@@ -551,12 +744,53 @@ def visible_models(state: RepositoryState, search_term: str, show_unassigned_onl
     return visible
 
 
-def initialize_editor_state(editor_key: str, slug: str) -> None:
+def initialize_editor_state(
+    editor_key: str,
+    slug: str,
+    hold: HoldConfig | None,
+    preview_candidates: list[str],
+) -> None:
     if st.session_state.get("editor_key") == editor_key:
         return
 
     st.session_state.editor_key = editor_key
     st.session_state.slug_input = slug
+    st.session_state.hold_enabled = hold is not None
+    st.session_state.hold_anchor_x = hold.anchor[0] if hold else DEFAULT_HOLD_ANCHOR[0]
+    st.session_state.hold_anchor_y = hold.anchor[1] if hold else DEFAULT_HOLD_ANCHOR[1]
+    st.session_state.hold_anchor_z = hold.anchor[2] if hold else DEFAULT_HOLD_ANCHOR[2]
+    st.session_state.hold_scale = hold.scale if hold else DEFAULT_HOLD_SCALE
+    st.session_state.hold_preview_slug = (
+        random.choice(preview_candidates) if preview_candidates else None
+    )
+
+
+def preview_candidate_slugs(state: RepositoryState, current_slug: str | None) -> list[str]:
+    return sorted(
+        slug
+        for slug, record in state.records_by_slug.items()
+        if slug != current_slug and slug not in state.missing_model_files
+    )
+
+
+def shuffle_hold_preview(preview_candidates: list[str]) -> None:
+    st.session_state.hold_preview_slug = (
+        random.choice(preview_candidates) if preview_candidates else None
+    )
+
+
+def hold_config_from_session() -> HoldConfig | None:
+    if not st.session_state.get("hold_enabled"):
+        return None
+
+    return HoldConfig(
+        anchor=(
+            float(st.session_state.hold_anchor_x),
+            float(st.session_state.hold_anchor_y),
+            float(st.session_state.hold_anchor_z),
+        ),
+        scale=float(st.session_state.hold_scale),
+    )
 
 
 def jump_to_unassigned_model() -> None:
@@ -712,15 +946,6 @@ def main() -> None:
 
     state = load_repository_state()
 
-    st.title("TPR Object CMS")
-    st.caption("Map GLB models to object slugs, preview meshes, and keep `public/objects` consistent.")
-
-    top_left, top_mid, top_right, top_far = st.columns(4)
-    top_left.metric("GLB models", len(state.models))
-    top_mid.metric("Object JSON files", len(state.records_by_slug))
-    top_right.metric("Indexed objects", len(dedupe_preserving_order(state.index_entries)))
-    top_far.metric("Unassigned models", len(state.unassigned_models))
-
     with st.sidebar:
         st.header("Model Browser")
         search_term = st.text_input(
@@ -795,12 +1020,17 @@ def main() -> None:
 
     current_record = state.records_by_slug.get(current_slug) if current_slug else None
     editor_key = f"{selected_model}::{current_slug or '__new__'}"
+    preview_candidates = preview_candidate_slugs(state, current_slug)
     initialize_editor_state(
         editor_key,
         current_slug or suggested_slug_for_model(selected_model),
+        current_record.hold if current_record else None,
+        preview_candidates,
     )
+    hold_preview = hold_config_from_session()
+    hold_requirement_sources = collect_inbound_hold_sources(state, current_slug)
 
-    form_column, preview_column = st.columns([1.05, 0.95], gap="large")
+    form_column, preview_column = st.columns([0.92, 1.08], gap="large")
 
     with form_column:
         st.subheader("Assignment")
@@ -895,6 +1125,7 @@ def main() -> None:
                     new_slug=proposed_slug,
                     model=selected_model,
                     relationships=relationships_preview,
+                    hold=hold_preview,
                 )
                 st.success(f"Saved `{proposed_slug}`.")
                 st.rerun()
@@ -914,33 +1145,101 @@ def main() -> None:
             else:
                 st.dataframe(inbound_rows, hide_index=True, use_container_width=True)
 
-        with st.expander("Generated JSON", expanded=False):
-            preview_slug = proposed_slug or suggested_slug_for_model(selected_model)
-
-            if relationship_errors:
-                st.caption("Preview updates after the relationship rows validate cleanly.")
-            else:
-                preview_json = serialize_object_payload(selected_model, relationships_preview)
-                st.code(f"// public/objects/{preview_slug}.json\n{preview_json}", language="json")
-
     with preview_column:
-        st.subheader("Preview")
+        st.subheader("Hold Placement")
+        st.toggle(
+            "This object can hold other objects",
+            key="hold_enabled",
+            help="Defines where another object will be placed and how much it will be scaled while held here.",
+        )
+
+        if hold_requirement_sources and not st.session_state.hold_enabled:
+            st.warning(
+                "These objects currently expect to be held here: "
+                f"{', '.join(hold_requirement_sources)}."
+            )
+
+        preview_header_left, preview_header_right = st.columns([0.72, 0.28])
+        preview_slug = st.session_state.get("hold_preview_slug")
+
+        with preview_header_left:
+            if st.session_state.hold_enabled:
+                if preview_slug:
+                    st.caption(f"Random held preview: `{preview_slug}`")
+                else:
+                    st.caption("No valid preview object is available.")
+            else:
+                st.caption("Enable hold placement to preview a random carried object.")
+
+        with preview_header_right:
+            st.button(
+                "Shuffle Preview",
+                use_container_width=True,
+                disabled=not preview_candidates,
+                on_click=shuffle_hold_preview,
+                args=(preview_candidates,),
+            )
+
+        if st.session_state.hold_enabled:
+            hold_controls_left, hold_controls_right = st.columns(2, gap="medium")
+
+            with hold_controls_left:
+                st.slider(
+                    "Hold X",
+                    min_value=HOLD_ANCHOR_RANGE[0],
+                    max_value=HOLD_ANCHOR_RANGE[1],
+                    step=0.01,
+                    key="hold_anchor_x",
+                )
+                st.slider(
+                    "Hold Y",
+                    min_value=HOLD_ANCHOR_RANGE[0],
+                    max_value=HOLD_ANCHOR_RANGE[1],
+                    step=0.01,
+                    key="hold_anchor_y",
+                )
+
+            with hold_controls_right:
+                st.slider(
+                    "Hold Z",
+                    min_value=HOLD_ANCHOR_RANGE[0],
+                    max_value=HOLD_ANCHOR_RANGE[1],
+                    step=0.01,
+                    key="hold_anchor_z",
+                )
+                st.slider(
+                    "Held Scale",
+                    min_value=HOLD_SCALE_RANGE[0],
+                    max_value=HOLD_SCALE_RANGE[1],
+                    step=0.01,
+                    key="hold_scale",
+                )
+
+        hold_preview = hold_config_from_session()
+        preview_slug = st.session_state.get("hold_preview_slug")
+        preview_record = state.records_by_slug.get(preview_slug) if preview_slug else None
 
         try:
-            figure = build_model_preview_figure(selected_model)
+            figure = build_hold_preview_figure(
+                base_model_path=selected_model,
+                held_model_path=preview_record.model if preview_record and hold_preview else None,
+                hold=hold_preview,
+                preview_slug=preview_slug if preview_record and hold_preview else None,
+            )
         except Exception as error:  # noqa: BLE001
             st.warning(f"Preview unavailable: {error}")
         else:
-            st.plotly_chart(figure, use_container_width=True, config={"displaylogo": False})
-
-        model_path = MODELS_DIR / selected_model
-        details = {
-            "Folder": Path(selected_model).parent.as_posix(),
-            "File": Path(selected_model).name,
-            "Size": f"{model_path.stat().st_size / 1024:.1f} KB",
-            "Assigned slug(s)": ", ".join(assigned_slugs) if assigned_slugs else "None",
-        }
-        st.json(details, expanded=True)
+            st.plotly_chart(
+                figure,
+                use_container_width=True,
+                theme=None,
+                key=f"hold_preview_chart::{editor_key}",
+                config={
+                    "displaylogo": False,
+                    "scrollZoom": True,
+                    "responsive": True,
+                },
+            )
 
 
 if __name__ == "__main__":

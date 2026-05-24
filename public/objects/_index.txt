@@ -60,7 +60,6 @@ eggplant
 fish
 glass
 grapes
-honey
 ice-cream
 leek
 lemon

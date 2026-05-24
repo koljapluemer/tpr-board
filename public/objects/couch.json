@@ -1,3 +1,11 @@
 {
-    "model": "k-furniture/loungeSofa.glb"
+    "model": "k-furniture/loungeSofa.glb",
+    "hold": {
+        "anchor": [
+            0.03,
+            -0.02,
+            0.43
+        ],
+        "scale": 0.13
+    }
 }
