@@ -39,6 +39,7 @@ const BOARD_CELLS = [
   new THREE.Vector3(0, 0, 4),
   new THREE.Vector3(4, 0, 4),
 ]
+const BOARD_CELL_SPACING = 4
 const HOVER_SCALE = 1.08
 const HOVER_DAMPING = 16
 const DRAG_LIFT = 0.9
@@ -48,6 +49,7 @@ const WIGGLE_ANGLE = 0.14
 const SPAWN_YAW_VARIATION = Math.PI / 6
 const DISAPPEAR_DURATION_SECONDS = 0.18
 const DESTRUCT_DURATION_SECONDS = 0.24
+const DROP_TARGET_FIELD_HALF_SPAN = BOARD_CELL_SPACING / 2
 
 export class BoardScene {
   private readonly boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
@@ -210,7 +212,38 @@ export class BoardScene {
     return null
   }
 
-  private findDropTarget(draggedObject: SceneObject) {
+  private findDropTarget(draggedObject: SceneObject, boardPoint: THREE.Vector3) {
+    const fieldCandidates: SceneObject[] = []
+
+    this.hoverableObjects.forEach((sceneObject) => {
+      if (sceneObject === draggedObject || !sceneObject.wrapper.visible) {
+        return
+      }
+
+      if (
+        Math.abs(boardPoint.x - sceneObject.homePosition.x) <= DROP_TARGET_FIELD_HALF_SPAN &&
+        Math.abs(boardPoint.z - sceneObject.homePosition.z) <= DROP_TARGET_FIELD_HALF_SPAN
+      ) {
+        fieldCandidates.push(sceneObject)
+      }
+    })
+
+    if (fieldCandidates.length > 0) {
+      let closestTarget = fieldCandidates[0]
+      let closestDistanceSquared = boardPoint.distanceToSquared(closestTarget.homePosition)
+
+      fieldCandidates.slice(1).forEach((sceneObject) => {
+        const distanceSquared = boardPoint.distanceToSquared(sceneObject.homePosition)
+
+        if (distanceSquared < closestDistanceSquared) {
+          closestTarget = sceneObject
+          closestDistanceSquared = distanceSquared
+        }
+      })
+
+      return closestTarget
+    }
+
     let bestTarget: SceneObject | null = null
     let bestDistanceSquared = Number.POSITIVE_INFINITY
 
@@ -238,7 +271,7 @@ export class BoardScene {
   }
 
   private readonly handlePointerCancel = (event: PointerEvent) => {
-    void this.stopDrag(event.pointerId)
+    void this.stopDrag(event)
   }
 
   private readonly handlePointerDown = (event: PointerEvent) => {
@@ -259,7 +292,7 @@ export class BoardScene {
   }
 
   private readonly handlePointerUp = (event: PointerEvent) => {
-    void this.stopDrag(event.pointerId)
+    void this.stopDrag(event)
   }
 
   private hideSceneObject(sceneObject: SceneObject) {
@@ -446,13 +479,17 @@ export class BoardScene {
     this.updateDraggedObjectPosition()
   }
 
-  private async stopDrag(pointerId: number) {
-    if (!this.dragState || this.dragState.pointerId !== pointerId) {
+  private async stopDrag(event: PointerEvent) {
+    if (!this.dragState || this.dragState.pointerId !== event.pointerId) {
       return
     }
 
-    if (this.renderer.domElement.hasPointerCapture(pointerId)) {
-      this.renderer.domElement.releasePointerCapture(pointerId)
+    if (this.setPointerFromEvent(event)) {
+      this.updateDraggedObjectPosition()
+    }
+
+    if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
+      this.renderer.domElement.releasePointerCapture(event.pointerId)
     }
 
     const draggedObject = this.dragState.object
@@ -586,7 +623,7 @@ export class BoardScene {
 
     this.dragState.object.wrapper.position.copy(point).add(this.dragState.grabOffset)
     this.dragState.object.wrapper.position.y = DRAG_LIFT
-    this.dropTargetObject = this.findDropTarget(this.dragState.object)
+    this.dropTargetObject = this.findDropTarget(this.dragState.object, point)
   }
 
   private updateHoveredObject() {

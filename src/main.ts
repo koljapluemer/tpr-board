@@ -1,11 +1,12 @@
 import './style.css'
 
-import { Languages } from 'lucide'
+import { BarChart3, Languages } from 'lucide'
 
 import { BoardScene } from './app/board-scene'
 import { loadLanguageCodes, loadLocaleTaskMap, loadObjectPool } from './app/data'
 import { createLucideIcon } from './app/icons'
 import { createAppLayout } from './app/layout'
+import { createStatsTracker, formatPlayedTime, type PlayerStats } from './app/stats'
 import { findTaskCandidates, selectBoardObjects } from './app/tasks'
 import type { LocaleTaskMap, PlacedObject, TaskCandidate } from './app/types'
 import { randomItem } from './app/utils'
@@ -20,6 +21,7 @@ if (!app) {
 }
 
 const layout = createAppLayout(app)
+const statsTracker = createStatsTracker()
 const boardScene = new BoardScene(layout.sceneRoot, {
   onTaskCompleted: () => {
     void handleTaskCompleted()
@@ -39,9 +41,21 @@ const state = {
 layout.languageButton.appendChild(
   createLucideIcon(Languages, { class: 'size-5', width: '20', height: '20' }),
 )
+layout.statsButton.appendChild(
+  createLucideIcon(BarChart3, { class: 'size-5', width: '20', height: '20' }),
+)
 layout.languageButton.addEventListener('click', () => {
   layout.languageModal.showModal()
 })
+layout.statsButton.addEventListener('click', () => {
+  updateStatsView(statsTracker.getStats())
+  layout.statsModal.showModal()
+})
+
+function updateStatsView(stats: PlayerStats) {
+  layout.statsTimePlayedValue.textContent = formatPlayedTime(stats.timePlayedMs)
+  layout.statsTasksCompletedValue.textContent = String(stats.tasksCompleted)
+}
 
 function getInitialLanguageCode(languageCodes: string[]) {
   if (!languageCodes.length) {
@@ -117,6 +131,7 @@ async function handleTaskCompleted() {
   }
 
   state.isTransitioningRound = true
+  updateStatsView(statsTracker.incrementTasksCompleted())
   setTaskSuccess(true)
 
   try {
@@ -170,10 +185,15 @@ async function init() {
   state.selectedLanguageCode = getInitialLanguageCode(languageCodes)
   state.localeTaskMap = await loadLocaleTaskMap(state.selectedLanguageCode)
 
+  statsTracker.subscribe(updateStatsView)
   renderLanguageOptions()
   await startNewRound()
 }
 
 init().catch((error) => {
   console.error(error)
+})
+
+window.addEventListener('beforeunload', () => {
+  statsTracker.destroy()
 })

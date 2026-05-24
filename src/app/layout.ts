@@ -4,6 +4,10 @@ type AppLayout = {
   languageModal: HTMLDialogElement
   languageOptions: HTMLDivElement
   sceneRoot: HTMLDivElement
+  statsButton: HTMLButtonElement
+  statsModal: HTMLDialogElement
+  statsTasksCompletedValue: HTMLParagraphElement
+  statsTimePlayedValue: HTMLParagraphElement
   taskText: HTMLHeadingElement
 }
 
@@ -21,12 +25,19 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
   app.innerHTML = `
     <div id="layout" class="h-full w-full" data-theme="light">
       <div class="flex h-full min-w-0">
-        <aside class="flex w-16 shrink-0 items-start justify-center border-r border-base-300 bg-base-100/80 p-3 backdrop-blur">
+        <aside class="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-base-300 bg-base-100/80 p-3 backdrop-blur">
           <button
             id="language-button"
             type="button"
             class="btn btn-square btn-ghost"
             aria-label="Choose language"
+            aria-haspopup="dialog"
+          ></button>
+          <button
+            id="stats-button"
+            type="button"
+            class="btn btn-square btn-ghost"
+            aria-label="Show stats"
             aria-haspopup="dialog"
           ></button>
         </aside>
@@ -54,6 +65,32 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
           <button type="submit">close</button>
         </form>
       </dialog>
+      <dialog id="stats-modal" class="modal">
+        <div class="modal-box">
+          <div class="mb-4">
+            <h2 class="text-lg font-semibold">Stats</h2>
+            <p class="text-sm text-base-content/70">Stored locally on this device.</p>
+          </div>
+          <dl class="flex flex-col gap-4">
+            <div class="rounded-box bg-base-200/70 px-4 py-3">
+              <dt class="text-sm text-base-content/70">Time played</dt>
+              <dd id="stats-time-played" class="text-2xl font-semibold">0m</dd>
+            </div>
+            <div class="rounded-box bg-base-200/70 px-4 py-3">
+              <dt class="text-sm text-base-content/70">Tasks completed</dt>
+              <dd id="stats-tasks-completed" class="text-2xl font-semibold">0</dd>
+            </div>
+          </dl>
+          <div class="modal-action">
+            <form method="dialog">
+              <button type="submit" class="btn">Close</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button type="submit">close</button>
+        </form>
+      </dialog>
     </div>
   `
 
@@ -63,6 +100,10 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
     languageModal: queryRequiredElement<HTMLDialogElement>(app, '#language-modal'),
     languageOptions: queryRequiredElement<HTMLDivElement>(app, '#language-options'),
     sceneRoot: queryRequiredElement<HTMLDivElement>(app, '#scene'),
+    statsButton: queryRequiredElement<HTMLButtonElement>(app, '#stats-button'),
+    statsModal: queryRequiredElement<HTMLDialogElement>(app, '#stats-modal'),
+    statsTasksCompletedValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-tasks-completed'),
+    statsTimePlayedValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-time-played'),
     taskText: queryRequiredElement<HTMLHeadingElement>(app, '#task-text'),
   }
 }
