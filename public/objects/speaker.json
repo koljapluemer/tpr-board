@@ -1,3 +1,10 @@
 {
-    "model": "k-furniture/speaker.glb"
+    "model": "k-furniture/speaker.glb",
+    "relationships": {
+        "house": [
+            "bring-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

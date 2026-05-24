@@ -1,3 +1,10 @@
 {
-    "model": "k-car-kit/firetruck.glb"
+    "model": "k-car-kit/firetruck.glb",
+    "relationships": {
+        "factory": [
+            "drive-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }
