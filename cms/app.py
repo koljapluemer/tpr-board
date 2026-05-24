@@ -335,6 +335,16 @@ def hold_to_json_payload(hold: HoldConfig) -> dict[str, Any]:
     }
 
 
+def hold_signature_payload(hold: HoldConfig | None) -> dict[str, Any] | None:
+    if hold is None:
+        return None
+
+    return {
+        "anchor": [round(coordinate, 6) for coordinate in hold.anchor],
+        "scale": round(hold.scale, 6),
+    }
+
+
 def serialize_object_payload(
     model: str,
     relationships: dict[str, list[str]],
@@ -744,25 +754,80 @@ def visible_models(state: RepositoryState, search_term: str, show_unassigned_onl
     return visible
 
 
-def initialize_editor_state(
+def editor_source_signature(
+    *,
+    editor_key: str,
+    slug: str,
+    hold: HoldConfig | None,
+) -> str:
+    return json.dumps(
+        {
+            "editor_key": editor_key,
+            "slug": slug,
+            "hold": hold_signature_payload(hold),
+        },
+        sort_keys=True,
+    )
+
+
+def hydrate_editor_state(
+    *,
     editor_key: str,
     slug: str,
     hold: HoldConfig | None,
     preview_candidates: list[str],
 ) -> None:
-    if st.session_state.get("editor_key") == editor_key:
-        return
+    previous_preview_slug = st.session_state.get("hold_preview_slug")
+    next_preview_slug = (
+        previous_preview_slug
+        if previous_preview_slug in preview_candidates
+        else random.choice(preview_candidates) if preview_candidates else None
+    )
 
     st.session_state.editor_key = editor_key
+    st.session_state.editor_source_signature = editor_source_signature(
+        editor_key=editor_key,
+        slug=slug,
+        hold=hold,
+    )
     st.session_state.slug_input = slug
     st.session_state.hold_enabled = hold is not None
     st.session_state.hold_anchor_x = hold.anchor[0] if hold else DEFAULT_HOLD_ANCHOR[0]
     st.session_state.hold_anchor_y = hold.anchor[1] if hold else DEFAULT_HOLD_ANCHOR[1]
     st.session_state.hold_anchor_z = hold.anchor[2] if hold else DEFAULT_HOLD_ANCHOR[2]
     st.session_state.hold_scale = hold.scale if hold else DEFAULT_HOLD_SCALE
-    st.session_state.hold_preview_slug = (
-        random.choice(preview_candidates) if preview_candidates else None
+    st.session_state.hold_preview_slug = next_preview_slug
+
+
+def sync_editor_state(
+    *,
+    editor_key: str,
+    slug: str,
+    hold: HoldConfig | None,
+    preview_candidates: list[str],
+) -> None:
+    next_signature = editor_source_signature(
+        editor_key=editor_key,
+        slug=slug,
+        hold=hold,
     )
+
+    if st.session_state.get("editor_key") != editor_key:
+        hydrate_editor_state(
+            editor_key=editor_key,
+            slug=slug,
+            hold=hold,
+            preview_candidates=preview_candidates,
+        )
+        return
+
+    if st.session_state.get("editor_source_signature") != next_signature:
+        hydrate_editor_state(
+            editor_key=editor_key,
+            slug=slug,
+            hold=hold,
+            preview_candidates=preview_candidates,
+        )
 
 
 def preview_candidate_slugs(state: RepositoryState, current_slug: str | None) -> list[str]:
@@ -1021,13 +1086,12 @@ def main() -> None:
     current_record = state.records_by_slug.get(current_slug) if current_slug else None
     editor_key = f"{selected_model}::{current_slug or '__new__'}"
     preview_candidates = preview_candidate_slugs(state, current_slug)
-    initialize_editor_state(
-        editor_key,
-        current_slug or suggested_slug_for_model(selected_model),
-        current_record.hold if current_record else None,
-        preview_candidates,
+    sync_editor_state(
+        editor_key=editor_key,
+        slug=current_slug or suggested_slug_for_model(selected_model),
+        hold=current_record.hold if current_record else None,
+        preview_candidates=preview_candidates,
     )
-    hold_preview = hold_config_from_session()
     hold_requirement_sources = collect_inbound_hold_sources(state, current_slug)
 
     form_column, preview_column = st.columns([0.92, 1.08], gap="large")
@@ -1125,7 +1189,7 @@ def main() -> None:
                     new_slug=proposed_slug,
                     model=selected_model,
                     relationships=relationships_preview,
-                    hold=hold_preview,
+                    hold=hold_config_from_session(),
                 )
                 st.success(f"Saved `{proposed_slug}`.")
                 st.rerun()

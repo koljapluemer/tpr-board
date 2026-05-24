@@ -1,3 +1,11 @@
 {
-    "model": "k-cube-pets/animal-beaver.glb"
+    "model": "k-cube-pets/animal-beaver.glb",
+    "hold": {
+        "anchor": [
+            0.0,
+            -0.27,
+            1.33
+        ],
+        "scale": 0.72
+    }
 }
