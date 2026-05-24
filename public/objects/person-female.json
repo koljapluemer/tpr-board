@@ -11,17 +11,27 @@
             "RETURN",
             "WIGGLE"
         ],
-        "taxi": [
-            "get-into",
-            "DISAPPEAR",
-            "NOTHING"
-        ],
         "animal-cat": [
             "pet",
             "RETURN",
             "WIGGLE"
         ],
         "avocado": [
+            "eat",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "taxi": [
+            "get-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ],
+        "tractor": [
+            "get-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ],
+        "apple": [
             "eat",
             "RETURN",
             "DESTRUCT"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ OBJECTS_DIR = PUBLIC_DIR / "objects"
 INDEX_PATH = OBJECTS_DIR / "_index.txt"
 TPR_BOARD_DATA_DIR = PUBLIC_DIR / "tpr-board-data"
 TPR_BOARD_DATA_INDEX_PATH = TPR_BOARD_DATA_DIR / "index.txt"
-EFFECT_OPTIONS = ("NOTHING", "RETURN", "DISAPPEAR", "DESTRUCT", "WIGGLE", "HOLD")
+EFFECT_OPTIONS = ("NOTHING", "RETURN", "DISAPPEAR", "DESTRUCT", "WIGGLE", "HELD")
 RELATIONSHIP_COLUMNS = ["Target", "Verb", "Effect on A", "Effect on B"]
 
 
@@ -563,6 +564,28 @@ def jump_to_unassigned_model() -> None:
 
     if selected_model:
         st.session_state.selected_model = selected_model
+        st.session_state.pop("selected_object_slug", None)
+
+
+def open_random_relationshipless_object(state: RepositoryState) -> bool:
+    candidates = sorted(
+        (
+            record
+            for record in state.records_by_slug.values()
+            if not record.relationships
+        ),
+        key=lambda record: record.slug,
+    )
+
+    if not candidates:
+        return False
+
+    record = random.choice(candidates)
+    st.session_state.model_filter = ""
+    st.session_state.show_unassigned_only = False
+    st.session_state.selected_model = record.model
+    st.session_state.selected_object_slug = record.slug
+    return True
 
 
 def render_health_panel(state: RepositoryState) -> None:
@@ -700,13 +723,34 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Model Browser")
-        search_term = st.text_input("Filter", placeholder="apple, character, k-food")
-        show_unassigned_only = st.toggle("Only show unassigned models", value=False)
+        search_term = st.text_input(
+            "Filter",
+            key="model_filter",
+            placeholder="apple, character, k-food",
+        )
+        show_unassigned_only = st.toggle(
+            "Only show unassigned models",
+            key="show_unassigned_only",
+            value=False,
+        )
         model_options = visible_models(state, search_term, show_unassigned_only)
+        relationshipless_count = sum(
+            1 for record in state.records_by_slug.values() if not record.relationships
+        )
 
         st.caption(
             f"{len(state.unassigned_models)} model(s) do not have a matching "
             "`public/objects/<slug>.json` entry yet."
+        )
+        st.caption(f"{relationshipless_count} object record(s) currently have no relationships set.")
+
+        st.button(
+            "Open Random Object Without Relationships",
+            use_container_width=True,
+            disabled=relationshipless_count == 0,
+            help="Jump to a random object JSON whose `relationships` field is empty or missing.",
+            on_click=open_random_relationshipless_object,
+            args=(state,),
         )
 
         if state.unassigned_models:
@@ -741,9 +785,13 @@ def main() -> None:
             "This model is currently referenced by multiple object JSON files. "
             "Pick the one you want to edit."
         )
-        current_slug = st.selectbox("Object record", assigned_slugs)
+        if st.session_state.get("selected_object_slug") not in assigned_slugs:
+            st.session_state.selected_object_slug = assigned_slugs[0]
+
+        current_slug = st.selectbox("Object record", assigned_slugs, key="selected_object_slug")
     else:
         current_slug = assigned_slugs[0] if assigned_slugs else None
+        st.session_state.pop("selected_object_slug", None)
 
     current_record = state.records_by_slug.get(current_slug) if current_slug else None
     editor_key = f"{selected_model}::{current_slug or '__new__'}"
