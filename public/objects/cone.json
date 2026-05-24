@@ -1,3 +1,10 @@
 {
-    "model": "k-car-kit/cone.glb"
+    "model": "k-car-kit/cone.glb",
+    "relationships": {
+        "person-male": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

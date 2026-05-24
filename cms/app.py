@@ -47,6 +47,14 @@ class ObjectRecord:
 
 
 @dataclass(frozen=True)
+class EditorSource:
+    editor_key: str
+    slug: str
+    relationships: dict[str, list[str]]
+    hold: HoldConfig | None
+
+
+@dataclass(frozen=True)
 class RepositoryState:
     models: list[str]
     index_entries: list[str]
@@ -342,6 +350,13 @@ def hold_signature_payload(hold: HoldConfig | None) -> dict[str, Any] | None:
     return {
         "anchor": [round(coordinate, 6) for coordinate in hold.anchor],
         "scale": round(hold.scale, 6),
+    }
+
+
+def relationships_signature_payload(relationships: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {
+        target: list(actions)
+        for target, actions in sorted(relationships.items())
     }
 
 
@@ -754,17 +769,13 @@ def visible_models(state: RepositoryState, search_term: str, show_unassigned_onl
     return visible
 
 
-def editor_source_signature(
-    *,
-    editor_key: str,
-    slug: str,
-    hold: HoldConfig | None,
-) -> str:
+def editor_source_signature(source: EditorSource) -> str:
     return json.dumps(
         {
-            "editor_key": editor_key,
-            "slug": slug,
-            "hold": hold_signature_payload(hold),
+            "editor_key": source.editor_key,
+            "slug": source.slug,
+            "relationships": relationships_signature_payload(source.relationships),
+            "hold": hold_signature_payload(source.hold),
         },
         sort_keys=True,
     )
@@ -772,9 +783,7 @@ def editor_source_signature(
 
 def hydrate_editor_state(
     *,
-    editor_key: str,
-    slug: str,
-    hold: HoldConfig | None,
+    source: EditorSource,
     preview_candidates: list[str],
 ) -> None:
     previous_preview_slug = st.session_state.get("hold_preview_slug")
@@ -784,48 +793,37 @@ def hydrate_editor_state(
         else random.choice(preview_candidates) if preview_candidates else None
     )
 
-    st.session_state.editor_key = editor_key
-    st.session_state.editor_source_signature = editor_source_signature(
-        editor_key=editor_key,
-        slug=slug,
-        hold=hold,
+    st.session_state.editor_key = source.editor_key
+    st.session_state.editor_source_signature = editor_source_signature(source)
+    st.session_state.editor_relationship_revision = (
+        st.session_state.get("editor_relationship_revision", 0) + 1
     )
-    st.session_state.slug_input = slug
-    st.session_state.hold_enabled = hold is not None
-    st.session_state.hold_anchor_x = hold.anchor[0] if hold else DEFAULT_HOLD_ANCHOR[0]
-    st.session_state.hold_anchor_y = hold.anchor[1] if hold else DEFAULT_HOLD_ANCHOR[1]
-    st.session_state.hold_anchor_z = hold.anchor[2] if hold else DEFAULT_HOLD_ANCHOR[2]
-    st.session_state.hold_scale = hold.scale if hold else DEFAULT_HOLD_SCALE
+    st.session_state.slug_input = source.slug
+    st.session_state.hold_enabled = source.hold is not None
+    st.session_state.hold_anchor_x = source.hold.anchor[0] if source.hold else DEFAULT_HOLD_ANCHOR[0]
+    st.session_state.hold_anchor_y = source.hold.anchor[1] if source.hold else DEFAULT_HOLD_ANCHOR[1]
+    st.session_state.hold_anchor_z = source.hold.anchor[2] if source.hold else DEFAULT_HOLD_ANCHOR[2]
+    st.session_state.hold_scale = source.hold.scale if source.hold else DEFAULT_HOLD_SCALE
     st.session_state.hold_preview_slug = next_preview_slug
 
 
 def sync_editor_state(
     *,
-    editor_key: str,
-    slug: str,
-    hold: HoldConfig | None,
+    source: EditorSource,
     preview_candidates: list[str],
 ) -> None:
-    next_signature = editor_source_signature(
-        editor_key=editor_key,
-        slug=slug,
-        hold=hold,
-    )
+    next_signature = editor_source_signature(source)
 
-    if st.session_state.get("editor_key") != editor_key:
+    if st.session_state.get("editor_key") != source.editor_key:
         hydrate_editor_state(
-            editor_key=editor_key,
-            slug=slug,
-            hold=hold,
+            source=source,
             preview_candidates=preview_candidates,
         )
         return
 
     if st.session_state.get("editor_source_signature") != next_signature:
         hydrate_editor_state(
-            editor_key=editor_key,
-            slug=slug,
-            hold=hold,
+            source=source,
             preview_candidates=preview_candidates,
         )
 
@@ -856,6 +854,11 @@ def hold_config_from_session() -> HoldConfig | None:
         ),
         scale=float(st.session_state.hold_scale),
     )
+
+
+def relationship_editor_widget_key(editor_key: str) -> str:
+    revision = st.session_state.get("editor_relationship_revision", 0)
+    return f"relationship_editor::{editor_key}::{revision}"
 
 
 def jump_to_unassigned_model() -> None:
@@ -1085,11 +1088,15 @@ def main() -> None:
 
     current_record = state.records_by_slug.get(current_slug) if current_slug else None
     editor_key = f"{selected_model}::{current_slug or '__new__'}"
-    preview_candidates = preview_candidate_slugs(state, current_slug)
-    sync_editor_state(
+    editor_source = EditorSource(
         editor_key=editor_key,
         slug=current_slug or suggested_slug_for_model(selected_model),
+        relationships=current_record.relationships if current_record else {},
         hold=current_record.hold if current_record else None,
+    )
+    preview_candidates = preview_candidate_slugs(state, current_slug)
+    sync_editor_state(
+        source=editor_source,
         preview_candidates=preview_candidates,
     )
     hold_requirement_sources = collect_inbound_hold_sources(state, current_slug)
@@ -1114,12 +1121,12 @@ def main() -> None:
         st.caption("One row per target object. Add or edit rows inline, then save once.")
 
         proposed_slug = slugify(st.session_state.slug_input)
-        relationship_editor_key = f"relationship_editor::{editor_key}"
+        relationship_editor_key = relationship_editor_widget_key(editor_key)
         valid_target_options = sorted(
             slug for slug in state.records_by_slug if slug != current_slug
         )
         relationship_rows = st.data_editor(
-            relationships_to_dataframe(current_record.relationships if current_record else {}),
+            relationships_to_dataframe(editor_source.relationships),
             key=relationship_editor_key,
             hide_index=True,
             num_rows="dynamic",

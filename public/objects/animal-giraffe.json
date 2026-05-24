@@ -1,3 +1,18 @@
 {
-    "model": "k-cube-pets/animal-giraffe.glb"
+    "model": "k-cube-pets/animal-giraffe.glb",
+    "hold": {
+        "anchor": [
+            -0.01,
+            -0.41,
+            1.07
+        ],
+        "scale": 0.47
+    },
+    "relationships": {
+        "tree": [
+            "goes-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

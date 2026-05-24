@@ -7,5 +7,12 @@
             1.33
         ],
         "scale": 0.72
+    },
+    "relationships": {
+        "house": [
+            "goes-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
     }
 }
