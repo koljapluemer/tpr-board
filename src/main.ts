@@ -382,6 +382,17 @@ async function loadLocaleTaskMap() {
   return loadJson<LocaleTaskMap>('/tpr-board-data/deu/deu.json', 'Failed to load German task strings.')
 }
 
+async function loadObjectPool() {
+  const objectNames = await loadObjectNames()
+
+  return Promise.all(
+    objectNames.map(async (name) => ({
+      name,
+      record: await loadObjectRecord(name),
+    })),
+  )
+}
+
 async function loadModel(modelPath: string): Promise<GLTF> {
   const manager = new THREE.LoadingManager()
   const modelFolder = modelPath.slice(0, modelPath.lastIndexOf('/'))
@@ -399,13 +410,97 @@ async function loadModel(modelPath: string): Promise<GLTF> {
   return loader.loadAsync(`/models/${modelPath}`)
 }
 
-async function placeObjects() {
-  const objectNames = await loadObjectNames()
-  const occupiedCells = shuffled(gridCells).slice(0, 4)
-  const placedObjects = await Promise.all(
-    occupiedCells.map(async (cell) => {
-      const objectName = randomItem(objectNames)
-      const record = await loadObjectRecord(objectName)
+function objectHasRelationships(record: ObjectRecord) {
+  return Object.keys(record.relationships ?? {}).length > 0
+}
+
+function findPossibleTasks(placedObjects: PlacedObject[], localeTaskMap: LocaleTaskMap) {
+  const availableTasks: string[] = []
+  const placedObjectNames = new Set(placedObjects.map((placedObject) => placedObject.name))
+
+  placedObjects.forEach(({ name, record }) => {
+    Object.entries(record.relationships ?? {}).forEach(([targetName, actions]) => {
+      if (!placedObjectNames.has(targetName)) {
+        return
+      }
+
+      actions.forEach((action) => {
+        const taskKey = `${name}_${action}_${targetName}`
+        const formulations = localeTaskMap[taskKey]
+
+        if (formulations?.length) {
+          availableTasks.push(...formulations)
+        }
+      })
+    })
+  })
+
+  return availableTasks
+}
+
+function findRelatedObjectPool(
+  placedObjects: PlacedObject[],
+  objectPoolByName: Map<string, ObjectRecord>,
+) {
+  const placedObjectNames = new Set(placedObjects.map(({ name }) => name))
+  const relatedObjectNames = new Set<string>()
+
+  placedObjects.forEach(({ record }) => {
+    Object.keys(record.relationships ?? {}).forEach((targetName) => {
+      if (!placedObjectNames.has(targetName) && objectPoolByName.has(targetName)) {
+        relatedObjectNames.add(targetName)
+      }
+    })
+  })
+
+  return shuffled([...relatedObjectNames]).map((name) => ({
+    name,
+    record: objectPoolByName.get(name)!,
+  }))
+}
+
+function selectBoardObjects(objectPool: PlacedObject[], localeTaskMap: LocaleTaskMap) {
+  const selectableObjects = shuffled(objectPool.filter(({ record }) => objectHasRelationships(record)))
+
+  if (!selectableObjects.length) {
+    throw new Error('No objects with relationships were found.')
+  }
+
+  const selectedObjects = selectableObjects.slice(0, Math.min(4, gridCells.length))
+
+  if (findPossibleTasks(selectedObjects, localeTaskMap).length > 0) {
+    return selectedObjects
+  }
+
+  if (selectedObjects.length >= gridCells.length) {
+    return selectedObjects
+  }
+
+  const objectPoolByName = new Map(objectPool.map(({ name, record }) => [name, record]))
+  const relatedCandidates = findRelatedObjectPool(selectedObjects, objectPoolByName)
+
+  if (!relatedCandidates.length) {
+    return selectedObjects
+  }
+
+  const candidateThatUnlocksTask =
+    relatedCandidates.find((candidate) => {
+      return findPossibleTasks([...selectedObjects, candidate], localeTaskMap).length > 0
+    }) ?? relatedCandidates[0]
+
+  return [...selectedObjects, candidateThatUnlocksTask]
+}
+
+async function placeObjects(placedObjects: PlacedObject[]) {
+  const occupiedCells = shuffled(gridCells).slice(0, placedObjects.length)
+  const placedSceneObjects = await Promise.all(
+    placedObjects.map(async ({ name: objectName, record }, index) => {
+      const cell = occupiedCells[index]
+
+      if (!cell) {
+        throw new Error('Not enough grid cells available for the selected objects.')
+      }
+
       const gltf = await loadModel(record.model)
       const wrapper = new THREE.Group()
 
@@ -432,31 +527,7 @@ async function placeObjects() {
     }),
   )
 
-  return placedObjects
-}
-
-function findPossibleTasks(placedObjects: PlacedObject[], localeTaskMap: LocaleTaskMap) {
-  const availableTasks: string[] = []
-  const placedObjectNames = new Set(placedObjects.map((placedObject) => placedObject.name))
-
-  placedObjects.forEach(({ name, record }) => {
-    Object.entries(record.relationships ?? {}).forEach(([targetName, actions]) => {
-      if (!placedObjectNames.has(targetName)) {
-        return
-      }
-
-      actions.forEach((action) => {
-        const taskKey = `${name}_${action}_${targetName}`
-        const formulations = localeTaskMap[taskKey]
-
-        if (formulations?.length) {
-          availableTasks.push(...formulations)
-        }
-      })
-    })
-  })
-
-  return availableTasks
+  return placedSceneObjects
 }
 
 function showTask(task: string) {
@@ -494,7 +565,9 @@ function animate(now: number) {
 
 async function init() {
   createBoard()
-  const [placedObjects, localeTaskMap] = await Promise.all([placeObjects(), loadLocaleTaskMap()])
+  const [objectPool, localeTaskMap] = await Promise.all([loadObjectPool(), loadLocaleTaskMap()])
+  const selectedObjects = selectBoardObjects(objectPool, localeTaskMap)
+  const placedObjects = await placeObjects(selectedObjects)
   const availableTasks = findPossibleTasks(placedObjects, localeTaskMap)
 
   showTask(
