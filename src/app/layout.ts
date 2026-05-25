@@ -127,7 +127,7 @@ export function createAppLayout(app: HTMLDivElement, options: { explainImageSrc:
       <dialog id="language-modal" class="modal">
         <div class="modal-box max-h-[calc(100vh-4rem)] max-w-2xl overflow-y-auto">
           <div class="mb-4">
-            <h2 class="text-lg font-semibold">Learning language</h2>
+            <h2 class="text-lg font-semibold">Which language do you want to practice?</h2>
             <p id="current-language-text" class="text-sm text-base-content/70"></p>
           </div>
           <section class="mb-5 rounded-box bg-base-200/70 p-4">
