@@ -1,3 +1,11 @@
 {
-    "model": "k-city-industrial/building-l.glb"
+    "model": "k-city-industrial/building-l.glb",
+    "hold": {
+        "anchor": [
+            0.73,
+            -0.99,
+            1.21
+        ],
+        "scale": 0.26
+    }
 }

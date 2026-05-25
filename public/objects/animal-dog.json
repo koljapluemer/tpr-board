@@ -1,3 +1,15 @@
 {
-    "model": "k-cube-pets/animal-dog.glb"
+    "model": "k-cube-pets/animal-dog.glb",
+    "relationships": {
+        "stairs": [
+            "is-on",
+            "HELD",
+            "NOTHING"
+        ],
+        "shopping-cart": [
+            "jumps-into",
+            "HELD",
+            "WIGGLE"
+        ]
+    }
 }

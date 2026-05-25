@@ -1,3 +1,15 @@
 {
-    "model": "k-cube-pets/animal-lion.glb"
+    "model": "k-cube-pets/animal-lion.glb",
+    "relationships": {
+        "meat-raw": [
+            "eat",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "palm": [
+            "walks-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

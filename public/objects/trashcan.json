@@ -1,3 +1,10 @@
 {
-    "model": "k-furniture/trashcan.glb"
+    "model": "k-furniture/trashcan.glb",
+    "relationships": {
+        "house": [
+            "bring-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }

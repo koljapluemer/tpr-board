@@ -578,7 +578,7 @@ export class BoardScene {
       draggedObject.wrapper.position.copy(draggedObject.homePosition)
       this.updateHoveredObject()
 
-      if (countIncorrectDrop) {
+      if (countIncorrectDrop && dropTarget) {
         this.onIncorrectDrop?.()
       }
 

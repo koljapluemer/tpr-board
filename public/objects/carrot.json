@@ -1,3 +1,20 @@
 {
-    "model": "k-food/carrot.glb"
+    "model": "k-food/carrot.glb",
+    "relationships": {
+        "animal-bunny": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "blender": [
+            "put-into",
+            "DESTRUCT",
+            "WIGGLE"
+        ],
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }

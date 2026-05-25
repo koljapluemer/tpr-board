@@ -1,7 +1,55 @@
 {
     "model": "k-food/cooking-knife.glb",
     "relationships": {
-        "apple": ["cut", "RETURN", "DESTRUCT"],
-        "banana": ["cut", "RETURN", "DESTRUCT"]
+        "apple": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "banana": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "broccoli": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "cheese": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "fish": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "leek": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "meat-raw": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "mushroom": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "tomato": [
+            "cut",
+            "RETURN",
+            "DESTRUCT"
+        ],
+        "kitchen-sink": [
+            "put-into",
+            "HELD",
+            "NOTHING"
+        ]
     }
 }

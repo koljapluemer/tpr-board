@@ -1,3 +1,11 @@
 {
-    "model": "k-furniture/stairs.glb"
+    "model": "k-furniture/stairs.glb",
+    "hold": {
+        "anchor": [
+            -0.21,
+            -0.05,
+            0.21
+        ],
+        "scale": 0.22
+    }
 }

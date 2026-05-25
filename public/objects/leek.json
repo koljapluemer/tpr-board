@@ -1,3 +1,15 @@
 {
-    "model": "k-food/leek.glb"
+    "model": "k-food/leek.glb",
+    "relationships": {
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ],
+        "person-male": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

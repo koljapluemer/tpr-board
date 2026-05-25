@@ -1,3 +1,15 @@
 {
-    "model": "k-food/avocado.glb"
+    "model": "k-food/avocado.glb",
+    "relationships": {
+        "shopping-cart": [
+            "put-into",
+            "HELD",
+            "NOTHING"
+        ],
+        "trashcan": [
+            "put-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

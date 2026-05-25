@@ -1,3 +1,10 @@
 {
-    "model": "k-pirate-kit/chest.glb"
+    "model": "k-pirate-kit/chest.glb",
+    "relationships": {
+        "ship": [
+            "load-onto",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

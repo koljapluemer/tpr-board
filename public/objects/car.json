@@ -1,3 +1,20 @@
 {
-    "model": "k-car-kit/sedan.glb"
+    "model": "k-car-kit/sedan.glb",
+    "relationships": {
+        "house": [
+            "drives-to",
+            "HELD",
+            "NOTHING"
+        ],
+        "palm": [
+            "parks-under",
+            "HELD",
+            "NOTHING"
+        ],
+        "tree": [
+            "parks-under",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

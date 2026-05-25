@@ -14,7 +14,6 @@ car
 tractor
 car-pickup-truck
 car-van
-wheel
 factory
 house
 tree
@@ -22,16 +21,12 @@ animal-beaver
 animal-bee
 animal-bunny
 animal-cat
-animal-caterpillar
 animal-chicken
 animal-cow
-animal-crab
 animal-deer
 animal-dog
 animal-elephant
-animal-fish
 animal-fox
-animal-giraffe
 animal-monkey
 animal-lion
 animal-parrot
@@ -68,7 +63,6 @@ sausage
 mushroom
 onion
 orange
-paprika
 pineapple
 pizza
 plate
@@ -77,7 +71,7 @@ pumpkin
 sandwich
 tomato
 bathtub
-bedsingle
+bed
 bench
 books
 chair

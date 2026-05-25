@@ -13,6 +13,11 @@
             "eat",
             "RETURN",
             "DESTRUCT"
+        ],
+        "shopping-cart": [
+            "jumps-into",
+            "HELD",
+            "WIGGLE"
         ]
     }
 }

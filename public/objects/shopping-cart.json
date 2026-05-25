@@ -1,3 +1,11 @@
 {
-    "model": "k-market/shopping-cart.glb"
+    "model": "k-market/shopping-cart.glb",
+    "hold": {
+        "anchor": [
+            -0.04,
+            -0.04,
+            0.2
+        ],
+        "scale": 0.34
+    }
 }

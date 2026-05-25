@@ -1,3 +1,15 @@
 {
-    "model": "k-food/meat-sausage.glb"
+    "model": "k-food/meat-sausage.glb",
+    "relationships": {
+        "bowl": [
+            "put-into",
+            "HELD",
+            "NOTHING"
+        ],
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }
