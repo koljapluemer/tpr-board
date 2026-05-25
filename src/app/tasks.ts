@@ -1,3 +1,4 @@
+import { predictRecall } from './ebisu'
 import type {
   DifficultyBreakdown,
   DifficultyTarget,
@@ -10,13 +11,18 @@ import type {
   RelationshipDefinition,
   RelationshipIndex,
   RoundPlan,
+  RoundSelectionMode,
+  SentenceLearningItem,
   TaskCandidate,
 } from './types'
 import { randomItem, shuffled } from './utils'
 
 const BOARD_CAPACITY = 9
+const HOURS_PER_MILLISECOND = 1 / (1000 * 60 * 60)
 const MISSING_RELATIONSHIP_DIFFICULTY = 0.3
 const OVERLAPPING_RELATIONSHIP_DIFFICULTY = 2
+const REVIEW_MODE_PROBABILITY = 0.5
+const REVIEW_RECALL_THRESHOLD = 0.8
 const UNRELATED_RELATIONSHIP_DIFFICULTY = 1
 
 type CandidateClass = 'isolated' | 'non-overlap' | 'overlap'
@@ -31,6 +37,18 @@ type PlanRoundOptions = {
   languageProgress: LanguageProgress | null
   learningItemsByObjectName: Map<string, LearningItem>
   relationshipIndex: RelationshipIndex
+  sentenceItemsByKey: Map<string, SentenceLearningItem>
+}
+
+type TaskSelection = {
+  activeTask: TaskCandidate
+  reviewPredictedRecall: number | null
+  selectionMode: RoundSelectionMode
+}
+
+type ReviewTaskCandidate = {
+  predictedRecall: number
+  task: TaskCandidate
 }
 
 function createTaskCandidate(edge: PlayableRelationship, textIndex: number): TaskCandidate {
@@ -43,6 +61,16 @@ function createTaskCandidate(edge: PlayableRelationship, textIndex: number): Tas
     text: edge.formulations[textIndex],
     textIndex,
   }
+}
+
+function resolveTaskCandidate(relationshipIndex: RelationshipIndex, taskKey: string, textIndex: number) {
+  const edge = relationshipIndex.playableEdgesByKey.get(taskKey)
+
+  if (!edge || textIndex < 0 || textIndex >= edge.formulations.length) {
+    return null
+  }
+
+  return createTaskCandidate(edge, textIndex)
 }
 
 function findPlayableRelationship(
@@ -76,6 +104,7 @@ export function createRelationshipIndex(
   const inboundSourcesByTarget = new Map<string, Set<string>>()
   const objectByName = new Map(objectPool.map((objectRecord) => [objectRecord.name, objectRecord]))
   const outboundTargetsBySource = new Map<string, Set<string>>()
+  const playableEdgesByKey = new Map<string, PlayableRelationship>()
   const playableEdgesBySource = new Map<string, PlayableRelationship[]>()
   let skippedMissingTargetCount = 0
   const skippedMissingTargetSamples: string[] = []
@@ -112,6 +141,7 @@ export function createRelationshipIndex(
 
       if (playableRelationship) {
         playableEdges.push(playableRelationship)
+        playableEdgesByKey.set(playableRelationship.key, playableRelationship)
       }
     })
 
@@ -141,6 +171,7 @@ export function createRelationshipIndex(
     inboundSourcesByTarget,
     isolatedNames,
     objectByName,
+    playableEdgesByKey,
     outboundTargetsBySource,
     playableEdgesBySource,
     playableSourceNames: [...playableEdgesBySource.keys()],
@@ -183,7 +214,7 @@ function classifyCandidate(
   return 'non-overlap'
 }
 
-function chooseCorrectTask(relationshipIndex: RelationshipIndex) {
+function chooseRandomTask(relationshipIndex: RelationshipIndex) {
   if (!relationshipIndex.playableSourceNames.length) {
     throw new Error('No locale-playable relationships were found.')
   }
@@ -199,6 +230,73 @@ function chooseCorrectTask(relationshipIndex: RelationshipIndex) {
   const textIndex = Math.floor(Math.random() * edge.formulations.length)
 
   return createTaskCandidate(edge, textIndex)
+}
+
+function toReviewTaskCandidate(
+  relationshipIndex: RelationshipIndex,
+  sentenceItem: SentenceLearningItem,
+  reviewedAt: number,
+) {
+  if (sentenceItem.seenCount <= 0) {
+    return null
+  }
+
+  const task = resolveTaskCandidate(relationshipIndex, sentenceItem.taskKey, sentenceItem.textIndex)
+
+  if (!task) {
+    return null
+  }
+
+  const elapsedHours = Math.max((reviewedAt - sentenceItem.lastReviewedAt) * HOURS_PER_MILLISECOND, 0)
+  const predictedRecall = predictRecall(sentenceItem.ebisuModel, elapsedHours, true)
+
+  if (predictedRecall >= REVIEW_RECALL_THRESHOLD) {
+    return null
+  }
+
+  return {
+    predictedRecall,
+    task,
+  } satisfies ReviewTaskCandidate
+}
+
+function chooseSentenceReviewTask(
+  relationshipIndex: RelationshipIndex,
+  sentenceItemsByKey: Map<string, SentenceLearningItem>,
+  reviewedAt = Date.now(),
+) {
+  const eligibleTasks = [...sentenceItemsByKey.values()]
+    .map((sentenceItem) => toReviewTaskCandidate(relationshipIndex, sentenceItem, reviewedAt))
+    .filter((task): task is ReviewTaskCandidate => task !== null)
+
+  if (!eligibleTasks.length) {
+    return null
+  }
+
+  return randomItem(eligibleTasks)
+}
+
+function selectTask(
+  relationshipIndex: RelationshipIndex,
+  sentenceItemsByKey: Map<string, SentenceLearningItem>,
+): TaskSelection {
+  if (Math.random() < REVIEW_MODE_PROBABILITY) {
+    const reviewTask = chooseSentenceReviewTask(relationshipIndex, sentenceItemsByKey)
+
+    if (reviewTask) {
+      return {
+        activeTask: reviewTask.task,
+        reviewPredictedRecall: reviewTask.predictedRecall,
+        selectionMode: 'sentence-review',
+      }
+    }
+  }
+
+  return {
+    activeTask: chooseRandomTask(relationshipIndex),
+    reviewPredictedRecall: null,
+    selectionMode: 'random',
+  }
 }
 
 function isCorrectAction(sourceName: string, targetName: string, correctTask: TaskCandidate) {
@@ -400,14 +498,14 @@ function drawCandidatesForStep(
   return candidates
 }
 
-export function planRound({
-  languageProgress,
-  learningItemsByObjectName,
-  relationshipIndex,
-}: PlanRoundOptions): RoundPlan {
-  const activeTask = chooseCorrectTask(relationshipIndex)
-  const sourceObject = relationshipIndex.objectByName.get(activeTask.sourceName)
-  const targetObject = relationshipIndex.objectByName.get(activeTask.targetName)
+function buildRoundPlan(
+  selection: TaskSelection,
+  learningItemsByObjectName: Map<string, LearningItem>,
+  languageProgress: LanguageProgress | null,
+  relationshipIndex: RelationshipIndex,
+): RoundPlan {
+  const sourceObject = relationshipIndex.objectByName.get(selection.activeTask.sourceName)
+  const targetObject = relationshipIndex.objectByName.get(selection.activeTask.targetName)
 
   if (!sourceObject || !targetObject) {
     throw new Error('The selected task references an object missing from the object pool.')
@@ -415,31 +513,39 @@ export function planRound({
 
   const placedObjects = [sourceObject, targetObject]
   const selectedNames = new Set(placedObjects.map(({ name }) => name))
-  const difficultyTarget = resolveDifficultyRule(activeTask, learningItemsByObjectName, languageProgress)
-  let difficultyBreakdown = calculateBoardDifficulty(placedObjects, activeTask)
+  const difficultyTarget = resolveDifficultyRule(
+    selection.activeTask,
+    learningItemsByObjectName,
+    languageProgress,
+  )
+  let difficultyBreakdown = calculateBoardDifficulty(placedObjects, selection.activeTask)
 
   if (difficultyTarget.kind === 'ceiling' && difficultyBreakdown.total >= difficultyTarget.value) {
     return {
-      activeTask,
+      activeTask: selection.activeTask,
       difficulty: difficultyBreakdown.total,
       difficultyBreakdown,
       difficultyTarget,
       placedObjects,
+      reviewPredictedRecall: selection.reviewPredictedRecall,
+      selectionMode: selection.selectionMode,
     }
   }
 
   if (difficultyTarget.kind === 'floor' && difficultyBreakdown.total > difficultyTarget.value) {
     return {
-      activeTask,
+      activeTask: selection.activeTask,
       difficulty: difficultyBreakdown.total,
       difficultyBreakdown,
       difficultyTarget,
       placedObjects,
+      reviewPredictedRecall: selection.reviewPredictedRecall,
+      selectionMode: selection.selectionMode,
     }
   }
 
   while (placedObjects.length < BOARD_CAPACITY) {
-    const candidateNames = drawCandidatesForStep(relationshipIndex, activeTask, selectedNames)
+    const candidateNames = drawCandidatesForStep(relationshipIndex, selection.activeTask, selectedNames)
 
     if (!candidateNames.length) {
       break
@@ -447,7 +553,7 @@ export function planRound({
 
     const simulations = shuffled(candidateNames)
       .map((candidateName) =>
-        simulateCandidate(candidateName, placedObjects, relationshipIndex, activeTask),
+        simulateCandidate(candidateName, placedObjects, relationshipIndex, selection.activeTask),
       )
       .filter((simulation): simulation is CandidateSimulation => simulation !== null)
     const chosenSimulation = chooseBestSimulation(simulations, difficultyTarget)
@@ -470,12 +576,25 @@ export function planRound({
   }
 
   return {
-    activeTask,
+    activeTask: selection.activeTask,
     difficulty: difficultyBreakdown.total,
     difficultyBreakdown,
     difficultyTarget,
     placedObjects,
+    reviewPredictedRecall: selection.reviewPredictedRecall,
+    selectionMode: selection.selectionMode,
   }
+}
+
+export function planRound({
+  languageProgress,
+  learningItemsByObjectName,
+  relationshipIndex,
+  sentenceItemsByKey,
+}: PlanRoundOptions): RoundPlan {
+  const selection = selectTask(relationshipIndex, sentenceItemsByKey)
+
+  return buildRoundPlan(selection, learningItemsByObjectName, languageProgress, relationshipIndex)
 }
 
 export function objectHasRelationships(record: ObjectRecord) {

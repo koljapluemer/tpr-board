@@ -16,6 +16,7 @@ import type {
   PlacedObject,
   RelationshipIndex,
   RoundPlan,
+  RoundSelectionMode,
   TaskCandidate,
 } from './app/types'
 
@@ -51,6 +52,8 @@ const state = {
   attemptCount: 0,
   boardDifficulty: 0,
   hadWrongAttempt: false,
+  roundReviewPredictedRecall: null as number | null,
+  roundSelectionMode: 'random' as RoundSelectionMode,
 }
 
 const taskAudio = {
@@ -332,6 +335,9 @@ function logRoundPlan(roundPlan: RoundPlan, languageCode: string) {
     boardObjectNames: roundPlan.placedObjects.map(({ name }) => name),
     breakdown: roundPlan.difficultyBreakdown,
     taskKey: roundPlan.activeTask.key,
+    reviewPredictedRecall: roundPlan.reviewPredictedRecall,
+    selectionMode: roundPlan.selectionMode,
+    textIndex: roundPlan.activeTask.textIndex,
   })
 }
 
@@ -351,6 +357,8 @@ async function showRoundStartError(error: unknown) {
   state.boardDifficulty = 0
   state.hadWrongAttempt = false
   state.placedObjects = []
+  state.roundReviewPredictedRecall = null
+  state.roundSelectionMode = 'random'
   setTaskSuccess(false)
   setTaskText(getRoundStartErrorMessage(error))
   boardScene.setActiveTask(null)
@@ -378,6 +386,7 @@ async function startNewRound() {
       languageProgress: learningSnapshot.progress,
       learningItemsByObjectName: learningSnapshot.itemsByObjectName,
       relationshipIndex: state.relationshipIndex,
+      sentenceItemsByKey: learningSnapshot.sentenceItemsByKey,
     })
     logRoundPlan(roundPlan, state.selectedLanguageCode)
 
@@ -386,6 +395,8 @@ async function startNewRound() {
     state.boardDifficulty = roundPlan.difficulty
     state.hadWrongAttempt = false
     state.placedObjects = roundPlan.placedObjects
+    state.roundReviewPredictedRecall = roundPlan.reviewPredictedRecall
+    state.roundSelectionMode = roundPlan.selectionMode
     setTaskSuccess(false)
     await boardScene.initialize(state.placedObjects)
     boardScene.setActiveTask(state.activeTask)
@@ -402,6 +413,8 @@ async function showLanguageSelectionState() {
   state.boardDifficulty = 0
   state.hadWrongAttempt = false
   state.placedObjects = []
+  state.roundReviewPredictedRecall = null
+  state.roundSelectionMode = 'random'
   setTaskSuccess(false)
   setTaskText('Choose a language to begin.')
   boardScene.setActiveTask(null)
@@ -449,6 +462,7 @@ async function handleTaskCompleted() {
       difficulty: state.boardDifficulty,
       hadWrongAttempt: state.hadWrongAttempt,
       languageCode,
+      selectionMode: state.roundSelectionMode,
     })
     await delay(ROUND_SUCCESS_DELAY_MS)
     await startNewRound()

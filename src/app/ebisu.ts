@@ -1,1 +1,1 @@
-export { defaultModel, updateRecall, type Model } from 'ebisu-js/dist/ebisu.min.mjs'
+export { defaultModel, predictRecall, updateRecall, type Model } from 'ebisu-js/dist/ebisu.min.mjs'

@@ -9,6 +9,7 @@ export type RelationshipEffect =
 export type EbisuModel = [number, number, number]
 
 export type RoundOutcome = 'correct' | 'wrong'
+export type RoundSelectionMode = 'random' | 'sentence-review'
 
 export type HoldPlacement = {
   anchor: [number, number, number]
@@ -58,6 +59,7 @@ export type RelationshipIndex = {
   inboundSourcesByTarget: Map<string, Set<string>>
   isolatedNames: string[]
   objectByName: Map<string, PlacedObject>
+  playableEdgesByKey: Map<string, PlayableRelationship>
   outboundTargetsBySource: Map<string, Set<string>>
   playableEdgesBySource: Map<string, PlayableRelationship[]>
   playableSourceNames: string[]
@@ -85,6 +87,8 @@ export type RoundPlan = {
   difficultyBreakdown: DifficultyBreakdown
   difficultyTarget: DifficultyTarget
   placedObjects: PlacedObject[]
+  reviewPredictedRecall: number | null
+  selectionMode: RoundSelectionMode
 }
 
 export type LearningItem = {
@@ -98,6 +102,18 @@ export type LearningItem = {
   seenCount: number
 }
 
+export type SentenceLearningItem = {
+  correctCount: number
+  ebisuModel: EbisuModel
+  incorrectCount: number
+  key: string
+  languageCode: string
+  lastReviewedAt: number
+  seenCount: number
+  taskKey: string
+  textIndex: number
+}
+
 export type LearningEvent = {
   attemptCount: number
   boardObjectNames: string[]
@@ -106,9 +122,11 @@ export type LearningEvent = {
   hadWrongAttempt: boolean
   id?: number
   languageCode: string
+  selectionMode: RoundSelectionMode
   sourceName: string
   targetName: string
   taskKey: string
+  taskTextIndex: number
 }
 
 export type LanguageProgress = {
