@@ -25,6 +25,7 @@ type DragState = {
 }
 
 type BoardSceneOptions = {
+  onIncorrectDrop?: () => void
   onTaskCompleted?: () => void
 }
 
@@ -63,6 +64,7 @@ export class BoardScene {
   private readonly grabPoint = new THREE.Vector3()
   private readonly hoverableObjects: SceneObject[] = []
   private readonly keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+  private readonly onIncorrectDrop?: () => void
   private readonly onTaskCompleted?: () => void
   private readonly planeIntersection = new THREE.Vector3()
   private readonly pointer = new THREE.Vector2(2, 2)
@@ -81,6 +83,7 @@ export class BoardScene {
   private lastFrameTime = performance.now()
 
   constructor(sceneRoot: HTMLDivElement, options: BoardSceneOptions = {}) {
+    this.onIncorrectDrop = options.onIncorrectDrop
     this.onTaskCompleted = options.onTaskCompleted
     this.sceneRoot = sceneRoot
 
@@ -277,7 +280,7 @@ export class BoardScene {
   }
 
   private readonly handlePointerCancel = (event: PointerEvent) => {
-    void this.stopDrag(event)
+    void this.stopDrag(event, false)
   }
 
   private readonly handlePointerDown = (event: PointerEvent) => {
@@ -298,7 +301,7 @@ export class BoardScene {
   }
 
   private readonly handlePointerUp = (event: PointerEvent) => {
-    void this.stopDrag(event)
+    void this.stopDrag(event, true)
   }
 
   private hideSceneObject(sceneObject: SceneObject) {
@@ -499,7 +502,7 @@ export class BoardScene {
     this.updateDraggedObjectPosition()
   }
 
-  private async stopDrag(event: PointerEvent) {
+  private async stopDrag(event: PointerEvent, countIncorrectDrop: boolean) {
     if (!this.dragState || this.dragState.pointerId !== event.pointerId) {
       return
     }
@@ -521,6 +524,11 @@ export class BoardScene {
     if (!this.isSuccessfulDrop(draggedObject, dropTarget)) {
       draggedObject.wrapper.position.copy(draggedObject.homePosition)
       this.updateHoveredObject()
+
+      if (countIncorrectDrop) {
+        this.onIncorrectDrop?.()
+      }
+
       return
     }
 

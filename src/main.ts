@@ -6,10 +6,10 @@ import { BoardScene } from './app/board-scene'
 import { loadLanguageCodes, loadLocaleTaskMap, loadObjectPool } from './app/data'
 import { createLucideIcon } from './app/icons'
 import { createAppLayout } from './app/layout'
+import { loadLearningSnapshot, recordCompletedRound } from './app/learning'
 import { createStatsTracker, formatPlayedTime, type PlayerStats } from './app/stats'
-import { findTaskCandidates, selectBoardObjects } from './app/tasks'
-import type { LocaleTaskMap, PlacedObject, TaskCandidate } from './app/types'
-import { randomItem } from './app/utils'
+import { createRelationshipIndex, planRound } from './app/tasks'
+import type { LocaleTaskMap, PlacedObject, RelationshipIndex, RoundPlan, TaskCandidate } from './app/types'
 
 const LANGUAGE_STORAGE_KEY = 'tpr-board.language-code'
 const ROUND_SUCCESS_DELAY_MS = 600
@@ -23,6 +23,9 @@ if (!app) {
 const layout = createAppLayout(app)
 const statsTracker = createStatsTracker()
 const boardScene = new BoardScene(layout.sceneRoot, {
+  onIncorrectDrop: () => {
+    handleIncorrectDrop()
+  },
   onTaskCompleted: () => {
     void handleTaskCompleted()
   },
@@ -35,7 +38,11 @@ const state = {
   localeTaskMap: {} as LocaleTaskMap,
   objectPool: [] as PlacedObject[],
   placedObjects: [] as PlacedObject[],
+  relationshipIndex: null as RelationshipIndex | null,
   selectedLanguageCode: '',
+  attemptCount: 0,
+  boardDifficulty: 0,
+  hadWrongAttempt: false,
 }
 
 const taskAudio = {
@@ -201,44 +208,78 @@ function updateLanguageButtons() {
   })
 }
 
-function pickTaskForCurrentBoard() {
-  const availableTasks = findTaskCandidates(state.placedObjects, state.localeTaskMap)
+function logRoundPlan(roundPlan: RoundPlan, languageCode: string) {
+  const comparator = roundPlan.difficultyTarget.kind === 'ceiling' ? '<' : '>'
 
-  if (!availableTasks.length) {
-    state.activeTask = null
-    boardScene.setActiveTask(null)
-    setTaskText('')
-    void syncTaskAudio(null)
-    return false
-  }
-
-  state.activeTask = randomItem(availableTasks)
-  boardScene.setActiveTask(state.activeTask)
-  setTaskText(state.activeTask.text)
-  void syncTaskAudio(state.activeTask)
-  return true
+  console.info('[round-planner] difficulty target', {
+    languageCode,
+    reason: roundPlan.difficultyTarget.reason,
+    target: `${comparator} ${roundPlan.difficultyTarget.value}`,
+  })
+  console.info('[round-planner] calculated difficulty', {
+    actualDifficulty: roundPlan.difficulty,
+    boardObjectNames: roundPlan.placedObjects.map(({ name }) => name),
+    breakdown: roundPlan.difficultyBreakdown,
+    taskKey: roundPlan.activeTask.key,
+  })
 }
 
 async function startNewRound() {
-  state.placedObjects = selectBoardObjects(state.objectPool, state.localeTaskMap)
+  if (!state.relationshipIndex) {
+    throw new Error('Relationship index has not been initialized.')
+  }
+
+  const learningSnapshot = await loadLearningSnapshot(state.selectedLanguageCode)
+  const roundPlan = planRound({
+    languageProgress: learningSnapshot.progress,
+    learningItemsByObjectName: learningSnapshot.itemsByObjectName,
+    relationshipIndex: state.relationshipIndex,
+  })
+  logRoundPlan(roundPlan, state.selectedLanguageCode)
+
+  state.activeTask = roundPlan.activeTask
+  state.attemptCount = 0
+  state.boardDifficulty = roundPlan.difficulty
+  state.hadWrongAttempt = false
+  state.placedObjects = roundPlan.placedObjects
   setTaskSuccess(false)
   await boardScene.initialize(state.placedObjects)
-
-  if (!pickTaskForCurrentBoard()) {
-    throw new Error('Failed to select a task for the current board.')
-  }
+  boardScene.setActiveTask(state.activeTask)
+  setTaskText(state.activeTask.text)
+  void syncTaskAudio(state.activeTask)
 }
 
-async function handleTaskCompleted() {
+function handleIncorrectDrop() {
   if (state.isTransitioningRound) {
     return
   }
 
+  state.attemptCount += 1
+  state.hadWrongAttempt = true
+}
+
+async function handleTaskCompleted() {
+  if (state.isTransitioningRound || !state.activeTask) {
+    return
+  }
+
   state.isTransitioningRound = true
+  state.attemptCount += 1
+  const completedTask = state.activeTask
+  const boardObjectNames = state.placedObjects.map(({ name }) => name)
+
   updateStatsView(statsTracker.incrementTasksCompleted())
   setTaskSuccess(true)
 
   try {
+    await recordCompletedRound({
+      activeTask: completedTask,
+      attemptCount: state.attemptCount,
+      boardObjectNames,
+      difficulty: state.boardDifficulty,
+      hadWrongAttempt: state.hadWrongAttempt,
+      languageCode: state.selectedLanguageCode,
+    })
     await delay(ROUND_SUCCESS_DELAY_MS)
     await startNewRound()
   } finally {
@@ -249,15 +290,12 @@ async function handleTaskCompleted() {
 async function selectLanguage(languageCode: string) {
   state.localeTaskMap = await loadLocaleTaskMap(languageCode)
   state.selectedLanguageCode = languageCode
+  state.relationshipIndex = createRelationshipIndex(state.objectPool, state.localeTaskMap)
   localStorage.setItem(LANGUAGE_STORAGE_KEY, languageCode)
   updateLanguageButtons()
 
   if (!state.isTransitioningRound) {
-    setTaskSuccess(false)
-
-    if (!pickTaskForCurrentBoard()) {
-      await startNewRound()
-    }
+    await startNewRound()
   }
 
   layout.languageModal.close()
@@ -288,6 +326,7 @@ async function init() {
   state.objectPool = objectPool
   state.selectedLanguageCode = getInitialLanguageCode(languageCodes)
   state.localeTaskMap = await loadLocaleTaskMap(state.selectedLanguageCode)
+  state.relationshipIndex = createRelationshipIndex(state.objectPool, state.localeTaskMap)
 
   statsTracker.subscribe(updateStatsView)
   renderLanguageOptions()
