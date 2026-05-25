@@ -4,10 +4,16 @@ type AppLayout = {
   languageModal: HTMLDialogElement
   languageOptions: HTMLDivElement
   sceneRoot: HTMLDivElement
+  statsBestStreakValue: HTMLParagraphElement
   statsButton: HTMLButtonElement
   statsModal: HTMLDialogElement
   statsTasksCompletedValue: HTMLParagraphElement
   statsTimePlayedValue: HTMLParagraphElement
+  streakBarCurrentFill: HTMLSpanElement
+  streakBarRecordFill: HTMLSpanElement
+  streakIcon: HTMLSpanElement
+  streakIndicator: HTMLDivElement
+  streakValue: HTMLSpanElement
   taskReplayButton: HTMLButtonElement
   taskText: HTMLHeadingElement
 }
@@ -43,6 +49,31 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
           ></button>
         </aside>
         <div class="flex min-w-0 flex-1 flex-col">
+          <section id="streak-panel" class="px-8 pt-5 pb-2">
+            <div class="mx-auto flex max-w-5xl items-center gap-3">
+              <div
+                id="streak-bar"
+                class="relative h-2 flex-1 overflow-hidden rounded-full bg-base-300/55"
+                aria-hidden="true"
+              >
+                <span
+                  id="streak-bar-current-fill"
+                  class="absolute inset-y-0 left-0 w-0 rounded-full transition-[width,background-color,opacity] duration-300"
+                ></span>
+                <span
+                  id="streak-bar-record-fill"
+                  class="absolute inset-y-0 left-0 w-0 rounded-full transition-[width,background-color,opacity] duration-300"
+                ></span>
+              </div>
+              <div
+                id="streak-indicator"
+                class="flex shrink-0 items-center gap-1.5 text-sm font-semibold tabular-nums text-base-content/70 transition-colors duration-300"
+              >
+                <span id="streak-icon" class="flex items-center text-amber-500/85"></span>
+                <span id="streak-value">0</span>
+              </div>
+            </div>
+          </section>
           <section id="task-panel" class="px-8 pt-7 pb-4 text-center">
             <div class="relative mx-auto max-w-5xl">
               <h1 id="task-text" class="mx-auto min-h-[1.1em] max-w-5xl pr-14 text-4xl font-extrabold leading-none text-balance md:text-6xl"></h1>
@@ -91,6 +122,10 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
               <dt class="text-sm text-base-content/70">Tasks completed</dt>
               <dd id="stats-tasks-completed" class="text-2xl font-semibold">0</dd>
             </div>
+            <div class="rounded-box bg-base-200/70 px-4 py-3">
+              <dt class="text-sm text-base-content/70">Best streak</dt>
+              <dd id="stats-best-streak" class="text-2xl font-semibold">0</dd>
+            </div>
           </dl>
           <div class="modal-action">
             <form method="dialog">
@@ -111,10 +146,16 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
     languageModal: queryRequiredElement<HTMLDialogElement>(app, '#language-modal'),
     languageOptions: queryRequiredElement<HTMLDivElement>(app, '#language-options'),
     sceneRoot: queryRequiredElement<HTMLDivElement>(app, '#scene'),
+    statsBestStreakValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-best-streak'),
     statsButton: queryRequiredElement<HTMLButtonElement>(app, '#stats-button'),
     statsModal: queryRequiredElement<HTMLDialogElement>(app, '#stats-modal'),
     statsTasksCompletedValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-tasks-completed'),
     statsTimePlayedValue: queryRequiredElement<HTMLParagraphElement>(app, '#stats-time-played'),
+    streakBarCurrentFill: queryRequiredElement<HTMLSpanElement>(app, '#streak-bar-current-fill'),
+    streakBarRecordFill: queryRequiredElement<HTMLSpanElement>(app, '#streak-bar-record-fill'),
+    streakIcon: queryRequiredElement<HTMLSpanElement>(app, '#streak-icon'),
+    streakIndicator: queryRequiredElement<HTMLDivElement>(app, '#streak-indicator'),
+    streakValue: queryRequiredElement<HTMLSpanElement>(app, '#streak-value'),
     taskReplayButton: queryRequiredElement<HTMLButtonElement>(app, '#task-replay-button'),
     taskText: queryRequiredElement<HTMLHeadingElement>(app, '#task-text'),
   }

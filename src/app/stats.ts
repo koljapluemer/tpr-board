@@ -1,17 +1,24 @@
 export type PlayerStats = {
+  bestStreak: number
+  currentStreak: number
+  recordStreakBaseline: number
   tasksCompleted: number
   timePlayedMs: number
 }
 
 type StatsTracker = {
+  breakStreak: () => PlayerStats
   destroy: () => void
   getStats: () => PlayerStats
-  incrementTasksCompleted: () => PlayerStats
+  recordCompletedTask: (wasPerfectRound: boolean) => PlayerStats
   subscribe: (listener: (stats: PlayerStats) => void) => () => void
 }
 
 const ACTIVITY_IDLE_TIMEOUT_MS = 45_000
 const DEFAULT_STATS: PlayerStats = {
+  bestStreak: 0,
+  currentStreak: 0,
+  recordStreakBaseline: 0,
   tasksCompleted: 0,
   timePlayedMs: 0,
 }
@@ -116,6 +123,21 @@ export function createStatsTracker(): StatsTracker {
   window.addEventListener('pointermove', markActivity, { passive: true })
 
   return {
+    breakStreak: () => {
+      flushPlayedTime()
+
+      if (stats.currentStreak === 0) {
+        return cloneStats(stats)
+      }
+
+      stats = {
+        ...stats,
+        currentStreak: 0,
+        recordStreakBaseline: stats.bestStreak,
+      }
+      commit()
+      return cloneStats(stats)
+    },
     destroy: () => {
       flushPlayedTime()
       window.clearInterval(intervalId)
@@ -131,10 +153,33 @@ export function createStatsTracker(): StatsTracker {
       flushPlayedTime()
       return cloneStats(stats)
     },
-    incrementTasksCompleted: () => {
+    recordCompletedTask: (wasPerfectRound) => {
       flushPlayedTime()
+
+      let currentStreak = stats.currentStreak
+      let bestStreak = stats.bestStreak
+      let recordStreakBaseline = stats.recordStreakBaseline
+
+      if (wasPerfectRound) {
+        if (currentStreak === 0) {
+          recordStreakBaseline = bestStreak
+        }
+
+        currentStreak += 1
+
+        if (currentStreak > bestStreak) {
+          bestStreak = currentStreak
+        }
+      } else if (currentStreak > 0) {
+        currentStreak = 0
+        recordStreakBaseline = bestStreak
+      }
+
       stats = {
         ...stats,
+        bestStreak,
+        currentStreak,
+        recordStreakBaseline,
         tasksCompleted: stats.tasksCompleted + 1,
       }
       commit()
@@ -168,6 +213,16 @@ export function formatPlayedTime(timePlayedMs: number) {
   return `${seconds}s`
 }
 
+function readStoredCount(value: unknown) {
+  const count = Number(value)
+
+  if (!Number.isFinite(count) || count < 0) {
+    return 0
+  }
+
+  return Math.floor(count)
+}
+
 function readPlayerStats(): PlayerStats {
   const rawStats = localStorage.getItem(STATS_STORAGE_KEY)
 
@@ -177,12 +232,23 @@ function readPlayerStats(): PlayerStats {
 
   try {
     const parsedStats = JSON.parse(rawStats) as Partial<PlayerStats>
-    const tasksCompleted = Number(parsedStats.tasksCompleted)
-    const timePlayedMs = Number(parsedStats.timePlayedMs)
+    const tasksCompleted = readStoredCount(parsedStats.tasksCompleted)
+    const timePlayedMs = readStoredCount(parsedStats.timePlayedMs)
+    const currentStreak = readStoredCount(parsedStats.currentStreak)
+    const bestStreak = Math.max(readStoredCount(parsedStats.bestStreak), currentStreak)
+    const hasStoredRecordBaseline = Object.prototype.hasOwnProperty.call(parsedStats, 'recordStreakBaseline')
+    const rawRecordBaseline = readStoredCount(parsedStats.recordStreakBaseline)
+    const recordStreakBaseline =
+      currentStreak === 0
+        ? bestStreak
+        : Math.min(hasStoredRecordBaseline ? rawRecordBaseline : bestStreak, bestStreak)
 
     return {
-      tasksCompleted: Number.isFinite(tasksCompleted) && tasksCompleted >= 0 ? tasksCompleted : 0,
-      timePlayedMs: Number.isFinite(timePlayedMs) && timePlayedMs >= 0 ? timePlayedMs : 0,
+      bestStreak,
+      currentStreak,
+      recordStreakBaseline,
+      tasksCompleted,
+      timePlayedMs,
     }
   } catch {
     return cloneStats(DEFAULT_STATS)

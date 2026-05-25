@@ -1,6 +1,6 @@
 import './style.css'
 
-import { BarChart3, Languages, Volume2 } from 'lucide'
+import { BarChart3, Flame, Languages, Volume2 } from 'lucide'
 
 import { BoardScene } from './app/board-scene'
 import { loadLanguageCodes, loadLocaleTaskMap, loadObjectPool } from './app/data'
@@ -55,6 +55,9 @@ const taskAudio = {
 layout.languageButton.appendChild(
   createLucideIcon(Languages, { class: 'size-5', width: '20', height: '20' }),
 )
+layout.streakIcon.appendChild(
+  createLucideIcon(Flame, { class: 'size-4', width: '16', height: '16' }),
+)
 layout.statsButton.appendChild(
   createLucideIcon(BarChart3, { class: 'size-5', width: '20', height: '20' }),
 )
@@ -75,8 +78,57 @@ layout.taskReplayButton.addEventListener('click', () => {
 taskAudio.element.preload = 'auto'
 
 function updateStatsView(stats: PlayerStats) {
+  updateStreakView(stats)
+  layout.statsBestStreakValue.textContent = String(stats.bestStreak)
   layout.statsTimePlayedValue.textContent = formatPlayedTime(stats.timePlayedMs)
   layout.statsTasksCompletedValue.textContent = String(stats.tasksCompleted)
+}
+
+function updateStreakView(stats: PlayerStats) {
+  const { bestStreak, currentStreak, recordStreakBaseline } = stats
+  const isRecordRun = currentStreak > 0 && currentStreak > recordStreakBaseline
+
+  layout.streakValue.textContent = String(currentStreak)
+  layout.streakIndicator.className = `flex shrink-0 items-center gap-1.5 text-sm font-semibold tabular-nums transition-colors duration-300 ${
+    isRecordRun ? 'text-emerald-700' : 'text-base-content/70'
+  }`
+  layout.streakIcon.className = `flex items-center transition-colors duration-300 ${
+    isRecordRun ? 'text-emerald-600' : 'text-amber-500/85'
+  }`
+
+  if (currentStreak === 0) {
+    layout.streakBarCurrentFill.className =
+      'absolute inset-y-0 left-0 w-0 rounded-full bg-amber-400/70 transition-[width,background-color,opacity] duration-300'
+    layout.streakBarRecordFill.className =
+      'absolute inset-y-0 left-0 w-0 rounded-full bg-transparent transition-[width,background-color,opacity] duration-300'
+    layout.streakBarCurrentFill.style.width = '0%'
+    layout.streakBarRecordFill.style.width = '0%'
+    layout.streakIndicator.title = bestStreak > 0 ? `Current streak: 0. Record: ${bestStreak}.` : 'Current streak: 0.'
+    return
+  }
+
+  if (isRecordRun) {
+    const baselineRatio = recordStreakBaseline > 0 ? Math.min(recordStreakBaseline / currentStreak, 1) : 0
+
+    layout.streakBarCurrentFill.className =
+      'absolute inset-y-0 left-0 rounded-full bg-emerald-500/70 transition-[width,background-color,opacity] duration-300'
+    layout.streakBarRecordFill.className =
+      'absolute inset-y-0 left-0 rounded-full bg-amber-400/65 transition-[width,background-color,opacity] duration-300'
+    layout.streakBarCurrentFill.style.width = '100%'
+    layout.streakBarRecordFill.style.width = `${baselineRatio * 100}%`
+    layout.streakIndicator.title = `Current streak: ${currentStreak}. Previous record: ${recordStreakBaseline}.`
+    return
+  }
+
+  const recordRatio = bestStreak > 0 ? Math.min(currentStreak / bestStreak, 1) : 0
+
+  layout.streakBarCurrentFill.className =
+    'absolute inset-y-0 left-0 rounded-full bg-amber-400/70 transition-[width,background-color,opacity] duration-300'
+  layout.streakBarRecordFill.className =
+    'absolute inset-y-0 left-0 rounded-full bg-transparent transition-[width,background-color,opacity] duration-300'
+  layout.streakBarCurrentFill.style.width = `${recordRatio * 100}%`
+  layout.streakBarRecordFill.style.width = '0%'
+  layout.streakIndicator.title = `Current streak: ${currentStreak}. Record: ${bestStreak}.`
 }
 
 function getInitialLanguageCode(languageCodes: string[]) {
@@ -255,7 +307,11 @@ function handleIncorrectDrop() {
   }
 
   state.attemptCount += 1
-  state.hadWrongAttempt = true
+
+  if (!state.hadWrongAttempt) {
+    state.hadWrongAttempt = true
+    statsTracker.breakStreak()
+  }
 }
 
 async function handleTaskCompleted() {
@@ -268,7 +324,7 @@ async function handleTaskCompleted() {
   const completedTask = state.activeTask
   const boardObjectNames = state.placedObjects.map(({ name }) => name)
 
-  updateStatsView(statsTracker.incrementTasksCompleted())
+  statsTracker.recordCompletedTask(!state.hadWrongAttempt)
   setTaskSuccess(true)
 
   try {
