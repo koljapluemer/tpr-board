@@ -1,3 +1,11 @@
 {
-    "model": "k-furniture/desk.glb"
+    "model": "k-furniture/desk.glb",
+    "hold": {
+        "anchor": [
+            0.03,
+            1.09,
+            0.09
+        ],
+        "scale": 0.3
+    }
 }

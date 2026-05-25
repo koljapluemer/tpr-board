@@ -1,3 +1,10 @@
 {
-    "model": "k-food/cherries.glb"
+    "model": "k-food/cherries.glb",
+    "relationships": {
+        "blender": [
+            "put-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

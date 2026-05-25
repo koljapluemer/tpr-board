@@ -1,3 +1,23 @@
 {
-    "model": "k-food/bowl.glb"
+    "model": "k-food/bowl.glb",
+    "hold": {
+        "anchor": [
+            -0.08,
+            -0.02,
+            -0.02
+        ],
+        "scale": 0.44
+    },
+    "relationships": {
+        "microwave": [
+            "put-in",
+            "DISAPPEAR",
+            "NOTHING"
+        ],
+        "kitchen-sink": [
+            "put-in",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

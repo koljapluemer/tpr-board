@@ -1,3 +1,10 @@
 {
-    "model": "k-food/cauliflower.glb"
+    "model": "k-food/cauliflower.glb",
+    "relationships": {
+        "pot": [
+            "put-in",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }

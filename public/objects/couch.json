@@ -7,5 +7,17 @@
             0.43
         ],
         "scale": 0.13
+    },
+    "relationships": {
+        "car-van": [
+            "put-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ],
+        "house": [
+            "move-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
     }
 }

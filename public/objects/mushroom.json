@@ -1,3 +1,15 @@
 {
-    "model": "k-food/mushroom.glb"
+    "model": "k-food/mushroom.glb",
+    "relationships": {
+        "pot": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ],
+        "kitchen-sink": [
+            "put-into",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

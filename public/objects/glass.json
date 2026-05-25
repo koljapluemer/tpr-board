@@ -1,3 +1,15 @@
 {
-    "model": "k-food/glass.glb"
+    "model": "k-food/glass.glb",
+    "relationships": {
+        "kitchen-sink": [
+            "put-into",
+            "HELD",
+            "NOTHING"
+        ],
+        "bottle": [
+            "put-next-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

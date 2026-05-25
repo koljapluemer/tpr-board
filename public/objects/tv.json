@@ -1,3 +1,20 @@
 {
-    "model": "k-furniture/televisionModern.glb"
+    "model": "k-furniture/televisionModern.glb",
+    "relationships": {
+        "car-pickup-truck": [
+            "load-onto",
+            "HELD",
+            "NOTHING"
+        ],
+        "desk": [
+            "put-on",
+            "HELD",
+            "NOTHING"
+        ],
+        "person-male": [
+            "give-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

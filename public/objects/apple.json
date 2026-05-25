@@ -1,3 +1,15 @@
 {
-    "model": "k-food/apple.glb"
+    "model": "k-food/apple.glb",
+    "relationships": {
+        "person-male": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ],
+        "animal-caterpillar": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

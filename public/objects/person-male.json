@@ -1,5 +1,13 @@
 {
     "model": "k-mini-characters/character-male-e.glb",
+    "hold": {
+        "anchor": [
+            0.02,
+            -0.52,
+            1.22
+        ],
+        "scale": 0.29
+    },
     "relationships": {
         "animal-cow": [
             "pet",

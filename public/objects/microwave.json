@@ -1,3 +1,15 @@
 {
-    "model": "k-furniture/kitchenMicrowave.glb"
+    "model": "k-furniture/kitchenMicrowave.glb",
+    "relationships": {
+        "car-van": [
+            "put-in",
+            "DISAPPEAR",
+            "NOTHING"
+        ],
+        "car": [
+            "put-in",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }

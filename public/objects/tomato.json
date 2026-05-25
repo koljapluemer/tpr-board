@@ -1,3 +1,10 @@
 {
-    "model": "k-food/tomato.glb"
+    "model": "k-food/tomato.glb",
+    "relationships": {
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ]
+    }
 }

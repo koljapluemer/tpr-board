@@ -1,5 +1,13 @@
 {
     "model": "k-mini-characters/character-female-a.glb",
+    "hold": {
+        "anchor": [
+            0.15,
+            -0.59,
+            1.27
+        ],
+        "scale": 0.22
+    },
     "relationships": {
         "ambulance": [
             "get-into",
@@ -16,6 +24,11 @@
             "RETURN",
             "WIGGLE"
         ],
+        "apple": [
+            "eat",
+            "RETURN",
+            "DESTRUCT"
+        ],
         "avocado": [
             "eat",
             "RETURN",
@@ -30,11 +43,6 @@
             "get-into",
             "DISAPPEAR",
             "WIGGLE"
-        ],
-        "apple": [
-            "eat",
-            "RETURN",
-            "DESTRUCT"
         ]
     }
 }

@@ -1,3 +1,11 @@
 {
-    "model": "k-city-suburban/tree-small.glb"
+    "model": "k-city-suburban/tree-small.glb",
+    "hold": {
+        "anchor": [
+            1.5,
+            -1.02,
+            1.5
+        ],
+        "scale": 0.37
+    }
 }

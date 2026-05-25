@@ -8,6 +8,8 @@ import { shuffled } from './utils'
 type SceneObject = PlacedObject & {
   wrapper: THREE.Group
   homePosition: THREE.Vector3
+  modelBoundsCenter: THREE.Vector3
+  modelHalfExtents: THREE.Vector3
   radius: number
   wigglePhase: number
   wiggleStrength: number
@@ -309,11 +311,36 @@ export class BoardScene {
 
   private measureModelRadius(model: THREE.Group) {
     const box = new THREE.Box3().setFromObject(model)
+    const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
 
     return {
+      center,
+      halfExtents: new THREE.Vector3(
+        Math.max(size.x / 2, 1e-6),
+        Math.max(size.y / 2, 1e-6),
+        Math.max(size.z / 2, 1e-6),
+      ),
       radius: Math.max(size.x, size.z) * 0.45,
     }
+  }
+
+  private holdAnchorToLocalPosition(sceneObject: SceneObject) {
+    const holdPlacement = sceneObject.record.hold
+
+    if (!holdPlacement) {
+      return new THREE.Vector3()
+    }
+
+    const [anchorX, anchorY, anchorZ] = holdPlacement.anchor
+
+    return sceneObject.modelBoundsCenter.clone().add(
+      new THREE.Vector3(
+        anchorX * sceneObject.modelHalfExtents.x,
+        anchorY * sceneObject.modelHalfExtents.y,
+        anchorZ * sceneObject.modelHalfExtents.z,
+      ),
+    )
   }
 
   private orientSpawnedObjectTowardCamera(wrapper: THREE.Object3D) {
@@ -353,7 +380,7 @@ export class BoardScene {
         const gltf = await this.loadModel(record.model)
         const wrapper = new THREE.Group()
 
-        const { radius } = this.measureModelRadius(gltf.scene)
+        const { center, halfExtents, radius } = this.measureModelRadius(gltf.scene)
 
         wrapper.add(gltf.scene)
         wrapper.position.copy(cell)
@@ -364,6 +391,8 @@ export class BoardScene {
           record,
           wrapper,
           homePosition: cell.clone(),
+          modelBoundsCenter: center,
+          modelHalfExtents: halfExtents,
           radius,
           wigglePhase: Math.random() * Math.PI * 2,
           wiggleStrength: 0,
@@ -545,7 +574,7 @@ export class BoardScene {
     }
 
     targetObject.wrapper.add(sourceObject.wrapper)
-    sourceObject.wrapper.position.set(...holdPlacement.anchor)
+    sourceObject.wrapper.position.copy(this.holdAnchorToLocalPosition(targetObject))
     sourceObject.wrapper.rotation.set(0, 0, 0)
     sourceObject.baseScale = holdPlacement.scale
     sourceObject.effectScale = 1

@@ -1,6 +1,19 @@
 {
     "model": "k-pirate-kit/bottle.glb",
+    "hold": {
+        "anchor": [
+            1.29,
+            -1.04,
+            -1.5
+        ],
+        "scale": 0.44
+    },
     "relationships": {
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "WIGGLE"
+        ],
         "person-female": [
             "give",
             "HELD",
@@ -10,11 +23,6 @@
             "give",
             "HELD",
             "NOTHING"
-        ],
-        "fridge": [
-            "put-into",
-            "DISAPPEAR",
-            "WIGGLE"
         ]
     }
 }

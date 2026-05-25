@@ -1,3 +1,28 @@
 {
-    "model": "k-car-kit/truck.glb"
+    "model": "k-car-kit/truck.glb",
+    "hold": {
+        "anchor": [
+            0.02,
+            -0.19,
+            -0.57
+        ],
+        "scale": 0.26
+    },
+    "relationships": {
+        "tree": [
+            "drive-to",
+            "HELD",
+            "NOTHING"
+        ],
+        "house": [
+            "drive-to",
+            "HELD",
+            "NOTHING"
+        ],
+        "factory": [
+            "drive-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

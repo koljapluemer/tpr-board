@@ -1,3 +1,10 @@
 {
-    "model": "k-cube-pets/animal-bee.glb"
+    "model": "k-cube-pets/animal-bee.glb",
+    "relationships": {
+        "tree": [
+            "flies-to",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

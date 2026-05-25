@@ -1,3 +1,15 @@
 {
-    "model": "k-food/cup-tea.glb"
+    "model": "k-food/cup-tea.glb",
+    "relationships": {
+        "desk": [
+            "put-on",
+            "HELD",
+            "NOTHING"
+        ],
+        "table": [
+            "put-on",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }

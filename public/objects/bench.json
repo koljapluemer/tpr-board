@@ -1,3 +1,18 @@
 {
-    "model": "k-furniture/bench.glb"
+    "model": "k-furniture/bench.glb",
+    "hold": {
+        "anchor": [
+            0.0,
+            0.03,
+            0.28
+        ],
+        "scale": 0.25
+    },
+    "relationships": {
+        "car-van": [
+            "put-in",
+            "DISAPPEAR",
+            "WIGGLE"
+        ]
+    }
 }

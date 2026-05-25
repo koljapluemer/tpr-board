@@ -1,3 +1,23 @@
 {
-    "model": "k-furniture/kitchenStove.glb"
+    "model": "k-furniture/kitchenStove.glb",
+    "hold": {
+        "anchor": [
+            0.0,
+            0.92,
+            -0.03
+        ],
+        "scale": 0.35
+    },
+    "relationships": {
+        "car-van": [
+            "load-onto",
+            "DISAPPEAR",
+            "WIGGLE"
+        ],
+        "car-pickup-truck": [
+            "load-onto",
+            "HELD",
+            "WIGGLE"
+        ]
+    }
 }

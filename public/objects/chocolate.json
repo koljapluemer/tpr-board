@@ -1,3 +1,15 @@
 {
-    "model": "k-food/chocolate.glb"
+    "model": "k-food/chocolate.glb",
+    "relationships": {
+        "fridge": [
+            "put-into",
+            "DISAPPEAR",
+            "NOTHING"
+        ],
+        "person-female": [
+            "give",
+            "HELD",
+            "NOTHING"
+        ]
+    }
 }
