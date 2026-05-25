@@ -77,12 +77,24 @@ export function createRelationshipIndex(
   const objectByName = new Map(objectPool.map((objectRecord) => [objectRecord.name, objectRecord]))
   const outboundTargetsBySource = new Map<string, Set<string>>()
   const playableEdgesBySource = new Map<string, PlayableRelationship[]>()
+  let skippedMissingTargetCount = 0
+  const skippedMissingTargetSamples: string[] = []
 
   objectPool.forEach(({ name, record }) => {
     const outboundTargets = new Set<string>()
     const playableEdges: PlayableRelationship[] = []
 
     Object.entries(record.relationships ?? {}).forEach(([targetName, relationship]) => {
+      if (!objectByName.has(targetName)) {
+        skippedMissingTargetCount += 1
+
+        if (skippedMissingTargetSamples.length < 5) {
+          skippedMissingTargetSamples.push(`${name} -> ${targetName}`)
+        }
+
+        return
+      }
+
       outboundTargets.add(targetName)
 
       if (!inboundSourcesByTarget.has(targetName)) {
@@ -117,6 +129,13 @@ export function createRelationshipIndex(
       return !hasOutboundRelationships && !hasInboundRelationships
     })
     .map(({ name }) => name)
+
+  if (skippedMissingTargetCount > 0) {
+    console.warn('[relationship-index] skipped relationships whose targets are missing from the object pool', {
+      count: skippedMissingTargetCount,
+      samples: skippedMissingTargetSamples,
+    })
+  }
 
   return {
     inboundSourcesByTarget,

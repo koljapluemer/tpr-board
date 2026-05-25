@@ -276,29 +276,61 @@ function logRoundPlan(roundPlan: RoundPlan, languageCode: string) {
   })
 }
 
-async function startNewRound() {
-  if (!state.relationshipIndex) {
-    throw new Error('Relationship index has not been initialized.')
+function getRoundStartErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message === 'No locale-playable relationships were found.') {
+    return 'No valid tasks are available for this language yet.'
   }
 
-  const learningSnapshot = await loadLearningSnapshot(state.selectedLanguageCode)
-  const roundPlan = planRound({
-    languageProgress: learningSnapshot.progress,
-    learningItemsByObjectName: learningSnapshot.itemsByObjectName,
-    relationshipIndex: state.relationshipIndex,
-  })
-  logRoundPlan(roundPlan, state.selectedLanguageCode)
+  return 'Unable to start a new round right now.'
+}
 
-  state.activeTask = roundPlan.activeTask
+async function showRoundStartError(error: unknown) {
+  console.error('[round-start] failed to start round', error)
+
+  state.activeTask = null
   state.attemptCount = 0
-  state.boardDifficulty = roundPlan.difficulty
+  state.boardDifficulty = 0
   state.hadWrongAttempt = false
-  state.placedObjects = roundPlan.placedObjects
+  state.placedObjects = []
   setTaskSuccess(false)
-  await boardScene.initialize(state.placedObjects)
-  boardScene.setActiveTask(state.activeTask)
-  setTaskText(state.activeTask.text)
-  void syncTaskAudio(state.activeTask)
+  setTaskText(getRoundStartErrorMessage(error))
+  boardScene.setActiveTask(null)
+  setTaskReplayAvailability(null)
+
+  try {
+    await boardScene.initialize([])
+  } catch (boardError) {
+    console.error('[round-start] failed to clear board after round-start error', boardError)
+  }
+}
+
+async function startNewRound() {
+  try {
+    if (!state.relationshipIndex) {
+      throw new Error('Relationship index has not been initialized.')
+    }
+
+    const learningSnapshot = await loadLearningSnapshot(state.selectedLanguageCode)
+    const roundPlan = planRound({
+      languageProgress: learningSnapshot.progress,
+      learningItemsByObjectName: learningSnapshot.itemsByObjectName,
+      relationshipIndex: state.relationshipIndex,
+    })
+    logRoundPlan(roundPlan, state.selectedLanguageCode)
+
+    state.activeTask = roundPlan.activeTask
+    state.attemptCount = 0
+    state.boardDifficulty = roundPlan.difficulty
+    state.hadWrongAttempt = false
+    state.placedObjects = roundPlan.placedObjects
+    setTaskSuccess(false)
+    await boardScene.initialize(state.placedObjects)
+    boardScene.setActiveTask(state.activeTask)
+    setTaskText(state.activeTask.text)
+    void syncTaskAudio(state.activeTask)
+  } catch (error) {
+    await showRoundStartError(error)
+  }
 }
 
 function handleIncorrectDrop() {
