@@ -1,4 +1,4 @@
-import type { LocaleTaskMap, ObjectRecord, PlacedObject } from './types'
+import type { LanguageOption, LocaleTaskMap, ObjectRecord, PlacedObject } from './types'
 
 async function loadText(url: string, errorMessage: string) {
   const response = await fetch(url)
@@ -42,13 +42,16 @@ async function loadObjectRecord(name: string) {
   return loadJson<ObjectRecord>(`/objects/${name}.json`, `Failed to load object record: ${name}`)
 }
 
-export async function loadLanguageCodes() {
-  const text = await loadText('/tpr-board-data/index.txt', 'Failed to load language index.')
+export async function loadLanguageOptions() {
+  const catalog = await loadJson<Record<string, string>>(
+    '/tpr-board-data/index.json',
+    'Failed to load language index.',
+  )
 
-  return text
-    .split('\n')
-    .map((code) => code.trim())
-    .filter(Boolean)
+  return Object.entries(catalog).map<LanguageOption>(([code, name]) => ({
+    code,
+    name,
+  }))
 }
 
 export async function loadLocaleTaskMap(languageCode: string) {

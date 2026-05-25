@@ -25,6 +25,11 @@ export type ObjectRecord = {
 
 export type LocaleTaskMap = Record<string, string[]>
 
+export type LanguageOption = {
+  code: string
+  name: string
+}
+
 export type PlacedObject = {
   name: string
   record: ObjectRecord

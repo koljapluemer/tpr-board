@@ -2,14 +2,22 @@ import './style.css'
 
 import { BarChart3, Flame, Languages, Volume2 } from 'lucide'
 
+import explainImageSrc from './assets/explain.webp'
 import { BoardScene } from './app/board-scene'
-import { loadLanguageCodes, loadLocaleTaskMap, loadObjectPool } from './app/data'
+import { loadLanguageOptions, loadLocaleTaskMap, loadObjectPool } from './app/data'
 import { createLucideIcon } from './app/icons'
 import { createAppLayout } from './app/layout'
 import { loadLearningSnapshot, recordCompletedRound } from './app/learning'
 import { createStatsTracker, formatPlayedTime, type PlayerStats } from './app/stats'
 import { createRelationshipIndex, planRound } from './app/tasks'
-import type { LocaleTaskMap, PlacedObject, RelationshipIndex, RoundPlan, TaskCandidate } from './app/types'
+import type {
+  LanguageOption,
+  LocaleTaskMap,
+  PlacedObject,
+  RelationshipIndex,
+  RoundPlan,
+  TaskCandidate,
+} from './app/types'
 
 const LANGUAGE_STORAGE_KEY = 'tpr-board.language-code'
 const ROUND_SUCCESS_DELAY_MS = 600
@@ -20,7 +28,7 @@ if (!app) {
   throw new Error('App root not found.')
 }
 
-const layout = createAppLayout(app)
+const layout = createAppLayout(app, { explainImageSrc })
 const statsTracker = createStatsTracker()
 const boardScene = new BoardScene(layout.sceneRoot, {
   onIncorrectDrop: () => {
@@ -34,12 +42,12 @@ const boardScene = new BoardScene(layout.sceneRoot, {
 const state = {
   activeTask: null as TaskCandidate | null,
   isTransitioningRound: false,
-  languageCodes: [] as string[],
+  languageOptions: [] as LanguageOption[],
   localeTaskMap: {} as LocaleTaskMap,
   objectPool: [] as PlacedObject[],
   placedObjects: [] as PlacedObject[],
   relationshipIndex: null as RelationshipIndex | null,
-  selectedLanguageCode: '',
+  selectedLanguageCode: null as string | null,
   attemptCount: 0,
   boardDifficulty: 0,
   hadWrongAttempt: false,
@@ -65,7 +73,7 @@ layout.taskReplayButton.appendChild(
   createLucideIcon(Volume2, { class: 'size-5', width: '20', height: '20' }),
 )
 layout.languageButton.addEventListener('click', () => {
-  layout.languageModal.showModal()
+  openLanguageModal()
 })
 layout.statsButton.addEventListener('click', () => {
   updateStatsView(statsTracker.getStats())
@@ -73,6 +81,16 @@ layout.statsButton.addEventListener('click', () => {
 })
 layout.taskReplayButton.addEventListener('click', () => {
   void replayTaskAudio()
+})
+layout.languageModal.addEventListener('cancel', (event) => {
+  if (!hasSelectedLanguage()) {
+    event.preventDefault()
+  }
+})
+layout.languageModal.addEventListener('close', () => {
+  if (!hasSelectedLanguage()) {
+    openLanguageModal()
+  }
 })
 
 taskAudio.element.preload = 'auto'
@@ -131,18 +149,48 @@ function updateStreakView(stats: PlayerStats) {
   layout.streakIndicator.title = `Current streak: ${currentStreak}. Record: ${bestStreak}.`
 }
 
-function getInitialLanguageCode(languageCodes: string[]) {
-  if (!languageCodes.length) {
+function getLanguageOption(languageCode: string | null) {
+  if (!languageCode) {
+    return null
+  }
+
+  return state.languageOptions.find((option) => option.code === languageCode) ?? null
+}
+
+function hasSelectedLanguage() {
+  return state.selectedLanguageCode !== null
+}
+
+function getInitialLanguageCode(languageOptions: LanguageOption[]) {
+  if (!languageOptions.length) {
     throw new Error('No language codes were found.')
   }
 
   const savedLanguageCode = localStorage.getItem(LANGUAGE_STORAGE_KEY)
+  const isKnownLanguage = languageOptions.some(({ code }) => code === savedLanguageCode)
 
-  if (savedLanguageCode && languageCodes.includes(savedLanguageCode)) {
+  if (savedLanguageCode && isKnownLanguage) {
     return savedLanguageCode
   }
 
-  return languageCodes[0]
+  if (savedLanguageCode) {
+    localStorage.removeItem(LANGUAGE_STORAGE_KEY)
+  }
+
+  return null
+}
+
+function openLanguageModal() {
+  if (!layout.languageModal.open) {
+    layout.languageModal.showModal()
+  }
+}
+
+function syncLanguageModalState() {
+  const requiresSelection = !hasSelectedLanguage()
+
+  layout.languageModalActions.classList.toggle('hidden', requiresSelection)
+  layout.languageModalBackdrop.classList.toggle('pointer-events-none', requiresSelection)
 }
 
 function setTaskText(task: string) {
@@ -225,6 +273,11 @@ async function syncTaskAudio(task: TaskCandidate | null) {
   }
 
   const languageCode = state.selectedLanguageCode
+
+  if (!languageCode) {
+    return
+  }
+
   const audioUrl = buildTaskAudioUrl(task, languageCode)
   const audioExists = await resolveTaskAudioAvailability(audioUrl)
 
@@ -247,8 +300,14 @@ function delay(ms: number) {
 }
 
 function updateLanguageButtons() {
-  layout.currentLanguageText.textContent = `Current: ${state.selectedLanguageCode}`
-  layout.languageButton.title = `Learning language: ${state.selectedLanguageCode}`
+  const selectedLanguage = getLanguageOption(state.selectedLanguageCode)
+
+  layout.currentLanguageText.textContent = selectedLanguage
+    ? `Current: ${selectedLanguage.name}`
+    : 'Choose a language to start playing.'
+  layout.languageButton.title = selectedLanguage
+    ? `Learning ${selectedLanguage.name}`
+    : 'Which language do you want to practice?'
 
   const buttons = layout.languageOptions.querySelectorAll<HTMLButtonElement>('button[data-language-code]')
 
@@ -306,6 +365,10 @@ async function showRoundStartError(error: unknown) {
 
 async function startNewRound() {
   try {
+    if (!state.selectedLanguageCode) {
+      return
+    }
+
     if (!state.relationshipIndex) {
       throw new Error('Relationship index has not been initialized.')
     }
@@ -333,6 +396,19 @@ async function startNewRound() {
   }
 }
 
+async function showLanguageSelectionState() {
+  state.activeTask = null
+  state.attemptCount = 0
+  state.boardDifficulty = 0
+  state.hadWrongAttempt = false
+  state.placedObjects = []
+  setTaskSuccess(false)
+  setTaskText('Choose a language to begin.')
+  boardScene.setActiveTask(null)
+  setTaskReplayAvailability(null)
+  await boardScene.initialize([])
+}
+
 function handleIncorrectDrop() {
   if (state.isTransitioningRound) {
     return
@@ -351,6 +427,12 @@ async function handleTaskCompleted() {
     return
   }
 
+  const languageCode = state.selectedLanguageCode
+
+  if (!languageCode) {
+    return
+  }
+
   state.isTransitioningRound = true
   state.attemptCount += 1
   const completedTask = state.activeTask
@@ -366,7 +448,7 @@ async function handleTaskCompleted() {
       boardObjectNames,
       difficulty: state.boardDifficulty,
       hadWrongAttempt: state.hadWrongAttempt,
-      languageCode: state.selectedLanguageCode,
+      languageCode,
     })
     await delay(ROUND_SUCCESS_DELAY_MS)
     await startNewRound()
@@ -380,6 +462,7 @@ async function selectLanguage(languageCode: string) {
   state.selectedLanguageCode = languageCode
   state.relationshipIndex = createRelationshipIndex(state.objectPool, state.localeTaskMap)
   localStorage.setItem(LANGUAGE_STORAGE_KEY, languageCode)
+  syncLanguageModalState()
   updateLanguageButtons()
 
   if (!state.isTransitioningRound) {
@@ -391,33 +474,50 @@ async function selectLanguage(languageCode: string) {
 
 function renderLanguageOptions() {
   layout.languageOptions.replaceChildren(
-    ...state.languageCodes.map((languageCode) => {
+    ...state.languageOptions.map(({ code, name }) => {
       const button = document.createElement('button')
       button.type = 'button'
-      button.dataset.languageCode = languageCode
-      button.className = 'btn w-full justify-start'
-      button.textContent = languageCode
+      button.dataset.languageCode = code
+      button.className = 'btn min-h-16 w-full justify-between px-4'
+
+      const nameText = document.createElement('span')
+      nameText.className = 'text-left text-base font-medium'
+      nameText.textContent = name
+
+      const codeText = document.createElement('span')
+      codeText.className = 'rounded-full bg-base-200 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-base-content/60'
+      codeText.textContent = code
+
+      button.append(nameText, codeText)
       button.addEventListener('click', () => {
-        void selectLanguage(languageCode)
+        void selectLanguage(code)
       })
       return button
     }),
   )
 
+  syncLanguageModalState()
   updateLanguageButtons()
 }
 
 async function init() {
-  const [languageCodes, objectPool] = await Promise.all([loadLanguageCodes(), loadObjectPool()])
+  const [languageOptions, objectPool] = await Promise.all([loadLanguageOptions(), loadObjectPool()])
 
-  state.languageCodes = languageCodes
+  state.languageOptions = languageOptions
   state.objectPool = objectPool
-  state.selectedLanguageCode = getInitialLanguageCode(languageCodes)
-  state.localeTaskMap = await loadLocaleTaskMap(state.selectedLanguageCode)
-  state.relationshipIndex = createRelationshipIndex(state.objectPool, state.localeTaskMap)
+  state.selectedLanguageCode = getInitialLanguageCode(languageOptions)
 
   statsTracker.subscribe(updateStatsView)
   renderLanguageOptions()
+
+  if (!state.selectedLanguageCode) {
+    await showLanguageSelectionState()
+    openLanguageModal()
+    return
+  }
+
+  state.localeTaskMap = await loadLocaleTaskMap(state.selectedLanguageCode)
+  state.relationshipIndex = createRelationshipIndex(state.objectPool, state.localeTaskMap)
   await startNewRound()
 }
 

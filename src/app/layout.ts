@@ -1,6 +1,8 @@
 type AppLayout = {
   currentLanguageText: HTMLParagraphElement
   languageButton: HTMLButtonElement
+  languageModalActions: HTMLDivElement
+  languageModalBackdrop: HTMLFormElement
   languageModal: HTMLDialogElement
   languageOptions: HTMLDivElement
   sceneRoot: HTMLDivElement
@@ -28,7 +30,7 @@ function queryRequiredElement<T extends Element>(parent: ParentNode, selector: s
   return element
 }
 
-export function createAppLayout(app: HTMLDivElement): AppLayout {
+export function createAppLayout(app: HTMLDivElement, options: { explainImageSrc: string }): AppLayout {
   app.innerHTML = `
     <div id="layout" class="flex h-full w-full flex-col" data-theme="light">
       <div class="flex min-h-0 min-w-0 flex-1">
@@ -123,19 +125,40 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
         </p>
       </footer>
       <dialog id="language-modal" class="modal">
-        <div class="modal-box">
+        <div class="modal-box max-h-[calc(100vh-4rem)] max-w-2xl overflow-y-auto">
           <div class="mb-4">
             <h2 class="text-lg font-semibold">Learning language</h2>
             <p id="current-language-text" class="text-sm text-base-content/70"></p>
           </div>
+          <section class="mb-5 rounded-box bg-base-200/70 p-4">
+            <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem] md:items-center">
+              <div>
+                <h3 class="text-base font-semibold">How to play</h3>
+                <p class="mt-2 text-sm leading-6 text-base-content/75">
+                  Listen to the spoken instruction, then drag the objects on the board to act it out.
+                </p>
+                <p class="mt-2 text-sm leading-6 text-base-content/75">
+                  Finish the action correctly to get the next task. You can replay the audio any time with the speaker button.
+                </p>
+              </div>
+              <img
+                src="${options.explainImageSrc}"
+                alt="Example board showing draggable objects during a task"
+                class="h-36 w-full rounded-xl object-cover shadow-sm md:h-32"
+              />
+            </div>
+          </section>
+          <div class="mb-3">
+            <h3 class="text-sm font-semibold uppercase tracking-[0.18em] text-base-content/55">Choose language</h3>
+          </div>
           <div id="language-options" class="flex flex-col gap-2"></div>
-          <div class="modal-action">
+          <div id="language-modal-actions" class="modal-action">
             <form method="dialog">
               <button type="submit" class="btn">Close</button>
             </form>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
+        <form id="language-modal-backdrop" method="dialog" class="modal-backdrop">
           <button type="submit">close</button>
         </form>
       </dialog>
@@ -175,6 +198,8 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
   return {
     currentLanguageText: queryRequiredElement<HTMLParagraphElement>(app, '#current-language-text'),
     languageButton: queryRequiredElement<HTMLButtonElement>(app, '#language-button'),
+    languageModalActions: queryRequiredElement<HTMLDivElement>(app, '#language-modal-actions'),
+    languageModalBackdrop: queryRequiredElement<HTMLFormElement>(app, '#language-modal-backdrop'),
     languageModal: queryRequiredElement<HTMLDialogElement>(app, '#language-modal'),
     languageOptions: queryRequiredElement<HTMLDivElement>(app, '#language-options'),
     sceneRoot: queryRequiredElement<HTMLDivElement>(app, '#scene'),
