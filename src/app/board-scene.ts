@@ -56,14 +56,29 @@ const SPAWN_YAW_VARIATION = Math.PI / 6
 const DISAPPEAR_DURATION_SECONDS = 0.18
 const DESTRUCT_DURATION_SECONDS = 0.24
 const DROP_TARGET_FIELD_HALF_SPAN = BOARD_CELL_SPACING / 2
+const TOON_GRADIENT_STEPS = new Uint8Array([32, 96, 160, 255])
+
+function createToonGradientMap() {
+  const gradientMap = new THREE.DataTexture(TOON_GRADIENT_STEPS, TOON_GRADIENT_STEPS.length, 1, THREE.RedFormat)
+  gradientMap.colorSpace = THREE.NoColorSpace
+  gradientMap.minFilter = THREE.NearestFilter
+  gradientMap.magFilter = THREE.NearestFilter
+  gradientMap.generateMipmaps = false
+  gradientMap.needsUpdate = true
+  return gradientMap
+}
 
 export class BoardScene {
   private readonly boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private readonly camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
-  private readonly fillLight = new THREE.DirectionalLight(0xffffff, 1.2)
+  private readonly ambientLight = new THREE.AmbientLight(0xfff6eb, 1.05)
+  private readonly fillLight = new THREE.DirectionalLight(0xe8edf8, 0.95)
   private readonly grabPoint = new THREE.Vector3()
+  private readonly boardBaseMaterial = new THREE.MeshBasicMaterial({ color: 0xc4b8a4 })
+  private readonly boardDarkMaterial = new THREE.MeshBasicMaterial({ color: 0xcab89d })
+  private readonly boardLightMaterial = new THREE.MeshBasicMaterial({ color: 0xf3e6cf })
   private readonly hoverableObjects: SceneObject[] = []
-  private readonly keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+  private readonly keyLight = new THREE.DirectionalLight(0xfff1d6, 2.6)
   private readonly onIncorrectDrop?: () => void
   private readonly onTaskCompleted?: () => void
   private readonly planeIntersection = new THREE.Vector3()
@@ -73,6 +88,7 @@ export class BoardScene {
   private readonly scene = new THREE.Scene()
   private readonly sceneRoot: HTMLDivElement
   private readonly spawnLookTarget = new THREE.Vector3()
+  private readonly toonGradientMap = createToonGradientMap()
 
   private activeTask: TaskCandidate | null = null
   private boardCreated = false
@@ -94,7 +110,7 @@ export class BoardScene {
     this.renderer.setSize(1, 1, false)
     this.sceneRoot.appendChild(this.renderer.domElement)
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 1.8))
+    this.scene.add(this.ambientLight)
 
     this.keyLight.position.set(6, 12, 8)
     this.scene.add(this.keyLight)
@@ -186,21 +202,57 @@ export class BoardScene {
   }
 
   private createBoard() {
+    const boardBase = new THREE.Mesh(
+      new THREE.PlaneGeometry(BOARD_CELL_SPACING * 3.25, BOARD_CELL_SPACING * 3.25),
+      this.boardBaseMaterial,
+    )
     const squareGeometry = new THREE.PlaneGeometry(BOARD_FIELD_SIZE, BOARD_FIELD_SIZE)
-    const lightSquare = new THREE.MeshStandardMaterial({ color: 0xe7e0d3, roughness: 1 })
-    const darkSquare = new THREE.MeshStandardMaterial({ color: 0xd8cfbf, roughness: 1 })
+
+    boardBase.rotation.x = -Math.PI / 2
+    boardBase.position.set(0, -0.03, 0)
+    this.scene.add(boardBase)
 
     BOARD_CELLS.forEach((cell, index) => {
       const row = Math.floor(index / 3)
       const column = index % 3
       const square = new THREE.Mesh(
         squareGeometry,
-        (row + column) % 2 === 0 ? lightSquare : darkSquare,
+        (row + column) % 2 === 0 ? this.boardLightMaterial : this.boardDarkMaterial,
       )
 
       square.rotation.x = -Math.PI / 2
       square.position.set(cell.x, -0.02, cell.z)
       this.scene.add(square)
+    })
+  }
+
+  private createToonMaterial(source: THREE.Material) {
+    const material = source as THREE.MeshStandardMaterial | THREE.MeshBasicMaterial | THREE.MeshLambertMaterial
+
+    return new THREE.MeshToonMaterial({
+      alphaTest: 'alphaTest' in material ? material.alphaTest : 0,
+      color: 'color' in material ? material.color.clone() : new THREE.Color(0xffffff),
+      gradientMap: this.toonGradientMap,
+      map: 'map' in material ? material.map : null,
+      opacity: material.opacity,
+      side: material.side,
+      transparent: material.transparent,
+      vertexColors: material.vertexColors,
+    })
+  }
+
+  private applyToonShading(model: THREE.Object3D) {
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return
+      }
+
+      if (Array.isArray(child.material)) {
+        child.material = child.material.map((material) => this.createToonMaterial(material))
+        return
+      }
+
+      child.material = this.createToonMaterial(child.material)
     })
   }
 
@@ -382,6 +434,7 @@ export class BoardScene {
 
         const gltf = await this.loadModel(record.model)
         const wrapper = new THREE.Group()
+        this.applyToonShading(gltf.scene)
 
         const { center, halfExtents, radius } = this.measureModelRadius(gltf.scene)
 
