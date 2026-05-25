@@ -30,8 +30,8 @@ function queryRequiredElement<T extends Element>(parent: ParentNode, selector: s
 
 export function createAppLayout(app: HTMLDivElement): AppLayout {
   app.innerHTML = `
-    <div id="layout" class="h-full w-full" data-theme="light">
-      <div class="flex h-full min-w-0">
+    <div id="layout" class="flex h-full w-full flex-col" data-theme="light">
+      <div class="flex min-h-0 min-w-0 flex-1">
         <aside class="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-base-300 bg-base-100/80 p-3 backdrop-blur">
           <button
             id="language-button"
@@ -90,6 +90,38 @@ export function createAppLayout(app: HTMLDivElement): AppLayout {
           <div id="scene" class="min-h-0 flex-1"></div>
         </div>
       </div>
+      <footer class="border-t border-base-300 bg-base-100/85 px-4 py-3 text-center text-xs leading-relaxed text-base-content/70 backdrop-blur">
+        <p class="mx-auto max-w-5xl text-balance">
+          Made by
+          <a
+            href="https://koljasam.com/"
+            target="_blank"
+            rel="noreferrer"
+            class="font-medium text-base-content underline decoration-base-content/30 underline-offset-3 transition hover:decoration-base-content"
+          >
+            Kolja Sam
+          </a>.
+          I am tracking nothing but page views with the privacy friendly
+          <a
+            href="https://www.goatcounter.com/"
+            target="_blank"
+            rel="noreferrer"
+            class="font-medium text-base-content underline decoration-base-content/30 underline-offset-3 transition hover:decoration-base-content"
+          >
+            goatcounter
+          </a>.
+          You can support me building more like this on
+          <a
+            href="https://ko-fi.com/S6S81CWUVD"
+            target="_blank"
+            rel="noreferrer"
+            class="font-medium text-base-content underline decoration-base-content/30 underline-offset-3 transition hover:decoration-base-content"
+          >
+            Ko-fi
+          </a>.
+          Functional cookies only.
+        </p>
+      </footer>
       <dialog id="language-modal" class="modal">
         <div class="modal-box">
           <div class="mb-4">
